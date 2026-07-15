@@ -12,7 +12,7 @@ export class RFQ {
     return res;
   }
 
-  async execute(_params: ExecuteRequest, _idempotencyKey?: string): Promise<ExecuteResult> {
+  async execute(_params: ExecuteRequest, _idempotencyKey: string): Promise<ExecuteResult> {
     throw new Error("rfq.execute() is coming soon");
   }
 }

@@ -5,9 +5,8 @@ import type { CashInCreateRequest, CashInOrder, Environment } from "../types.js"
 export class CashIn {
   constructor(private readonly config: HttpClientConfig) {}
 
-  async create(params: CashInCreateRequest, idempotencyKey?: string): Promise<CashInOrder> {
-    const headers: Record<string, string> = {};
-    if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+  async create(params: CashInCreateRequest, idempotencyKey: string): Promise<CashInOrder> {
+    const headers: Record<string, string> = { "Idempotency-Key": idempotencyKey };
 
     const body = {
       amount: params.amount,
