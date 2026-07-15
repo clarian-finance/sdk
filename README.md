@@ -20,18 +20,22 @@ const clarian = new Clarian({
   workspaceId: "your-workspace-uuid",
 });
 
+// Health check
+const ping = await clarian.ping();
+console.log(ping.environment); // "production" or "sandbox"
+
 // Check balances
 const balances = await clarian.balances.list();
 console.log(balances);
 
-// Create a PIX cash-in (deposit)
+// Create a PIX cash-in (deposit) — idempotency key required
 const order = await clarian.cashIn.create({
   amount: 100.00,
   payer: {
     name: "Maria Silva",
     document: { number: "12345678900" },
   },
-});
+}, "deposit-001");
 console.log(order.pix.copy_paste); // PIX copy-paste code
 ```
 
@@ -48,6 +52,13 @@ The SDK detects the environment from the key prefix automatically.
 
 ## Resources
 
+### Ping
+
+```typescript
+const ping = await clarian.ping();
+// { ok: true, environment: "production", master_account_id: "...", scope: "master" }
+```
+
 ### RFQ (Quotes)
 
 ```typescript
@@ -59,17 +70,17 @@ const quote = await clarian.rfq.quote({
   amount_currency: "BRL",
 });
 
-// Execute the quote
-const result = await clarian.rfq.execute(
-  { quote_id: quote.quote_id },
-  "idempotency-key-123",
-);
+// Execute the quote (coming soon)
+// const result = await clarian.rfq.execute(
+//   { quote_id: quote.quote_id },
+//   "rfq-exec-001",
+// );
 ```
 
 ### PIX Cash-in (Deposits)
 
 ```typescript
-// Create a deposit QR code
+// Create a deposit QR code (idempotency key required)
 const deposit = await clarian.cashIn.create({
   amount: 50.00,
   payer: {
@@ -78,7 +89,7 @@ const deposit = await clarian.cashIn.create({
   },
   description: "Invoice #42",
   expiration_seconds: 3600,
-});
+}, "deposit-inv-42");
 
 // Retrieve a deposit
 const order = await clarian.cashIn.retrieve(deposit.id);

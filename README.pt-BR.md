@@ -20,18 +20,22 @@ const clarian = new Clarian({
   workspaceId: "seu-workspace-uuid",
 });
 
+// Health check
+const ping = await clarian.ping();
+console.log(ping.environment); // "production" ou "sandbox"
+
 // Consultar saldos
 const saldos = await clarian.balances.list();
 console.log(saldos);
 
-// Criar um cash-in PIX (depósito)
+// Criar um cash-in PIX (depósito) — chave de idempotência obrigatória
 const pedido = await clarian.cashIn.create({
   amount: 100.00,
   payer: {
     name: "Maria Silva",
     document: { number: "12345678900" },
   },
-});
+}, "deposito-001");
 console.log(pedido.pix.copy_paste); // código copia-e-cola do PIX
 ```
 
@@ -48,6 +52,13 @@ O SDK detecta o ambiente automaticamente pelo prefixo da chave.
 
 ## Recursos
 
+### Ping
+
+```typescript
+const ping = await clarian.ping();
+// { ok: true, environment: "production", master_account_id: "...", scope: "master" }
+```
+
 ### RFQ (Cotações)
 
 ```typescript
@@ -59,17 +70,17 @@ const cotacao = await clarian.rfq.quote({
   amount_currency: "BRL",
 });
 
-// Executar a cotação
-const resultado = await clarian.rfq.execute(
-  { quote_id: cotacao.quote_id },
-  "chave-idempotencia-123",
-);
+// Executar a cotação (em breve)
+// const resultado = await clarian.rfq.execute(
+//   { quote_id: cotacao.quote_id },
+//   "rfq-exec-001",
+// );
 ```
 
 ### PIX Cash-in (Depósitos)
 
 ```typescript
-// Criar QR code para depósito
+// Criar QR code para depósito (chave de idempotência obrigatória)
 const deposito = await clarian.cashIn.create({
   amount: 50.00,
   payer: {
@@ -78,7 +89,7 @@ const deposito = await clarian.cashIn.create({
   },
   description: "Fatura #42",
   expiration_seconds: 3600,
-});
+}, "deposito-fatura-42");
 
 // Consultar um depósito
 const pedido = await clarian.cashIn.retrieve(deposito.id);
