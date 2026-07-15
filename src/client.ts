@@ -1,5 +1,6 @@
-import type { ClarianConfig, Environment } from "./types.js";
-import { createHttpConfig, resolveEnvironment } from "./http.js";
+import type { ClarianConfig, Environment, PingResponse } from "./types.js";
+import { createHttpConfig, resolveEnvironment, type HttpClientConfig } from "./http.js";
+import { request } from "./http.js";
 import { RFQ } from "./resources/rfq.js";
 import { CashIn } from "./resources/cash-in.js";
 import { CashOut } from "./resources/cash-out.js";
@@ -17,20 +18,25 @@ export class Clarian {
   readonly transactions: Transactions;
   readonly webhooks: WebhooksAPI;
   readonly environment: Environment;
+  private readonly config: HttpClientConfig;
 
   constructor(config: ClarianConfig) {
     if (!config.apiKey) throw new Error("apiKey is required");
     if (!config.workspaceId) throw new Error("workspaceId is required");
 
-    const httpConfig = createHttpConfig(config);
+    this.config = createHttpConfig(config);
     this.environment = resolveEnvironment(config.apiKey);
 
-    this.rfq = new RFQ(httpConfig);
-    this.cashIn = new CashIn(httpConfig);
-    this.cashOut = new CashOut(httpConfig);
-    this.balances = new Balances(httpConfig);
-    this.wallets = new Wallets(httpConfig);
-    this.transactions = new Transactions(httpConfig);
-    this.webhooks = new WebhooksAPI(httpConfig);
+    this.rfq = new RFQ(this.config);
+    this.cashIn = new CashIn(this.config);
+    this.cashOut = new CashOut(this.config);
+    this.balances = new Balances(this.config);
+    this.wallets = new Wallets(this.config);
+    this.transactions = new Transactions(this.config);
+    this.webhooks = new WebhooksAPI(this.config);
+  }
+
+  async ping(): Promise<PingResponse> {
+    return request<PingResponse>(this.config, "GET", "ping");
   }
 }

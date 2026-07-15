@@ -9,6 +9,16 @@ export interface ClarianConfig {
 
 export type Environment = "production" | "sandbox";
 
+// ── Ping ────────────────────────────────────────────────────
+
+export interface PingResponse {
+  ok: true;
+  environment: Environment;
+  master_account_id: string;
+  scope: string;
+  customer_id: string | null;
+}
+
 // ── Shared ──────────────────────────────────────────────────
 
 export interface ApiResponse<T> {

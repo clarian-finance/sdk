@@ -9,6 +9,7 @@ export {
 export type {
   ClarianConfig,
   Environment,
+  PingResponse,
   ApiResponse,
   ApiError,
   QuoteRequest,

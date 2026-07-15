@@ -12,12 +12,7 @@ export class RFQ {
     return res;
   }
 
-  async execute(params: ExecuteRequest, idempotencyKey?: string): Promise<ExecuteResult> {
-    const headers: Record<string, string> = {};
-    if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
-    const res = await request<{ ok: true; environment: Environment } & ExecuteResult>(
-      this.config, "POST", "rfq/execute", params, headers,
-    );
-    return res;
+  async execute(_params: ExecuteRequest, _idempotencyKey?: string): Promise<ExecuteResult> {
+    throw new Error("rfq.execute() is coming soon");
   }
 }
