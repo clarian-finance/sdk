@@ -63,11 +63,7 @@ export async function request<T>(
     const json = await resp.json() as Record<string, unknown>;
 
     if (!resp.ok) {
-      throw new ClarianError(resp.status, {
-        error: String(json.error ?? "unknown_error"),
-        detail: json.detail as string | undefined,
-        hint: json.hint as string | undefined,
-      });
+      throw new ClarianError(resp.status, json);
     }
 
     return json as T;

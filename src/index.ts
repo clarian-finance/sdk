@@ -12,6 +12,7 @@ export type {
   PingResponse,
   ApiResponse,
   ApiError,
+  InsufficientBalanceError,
   QuoteRequest,
   Quote,
   ExecuteRequest,

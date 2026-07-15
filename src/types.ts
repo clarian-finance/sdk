@@ -33,6 +33,19 @@ export interface ApiError {
   hint?: string;
 }
 
+// ── Structured Error Metadata ───────────────────────────────
+
+export interface InsufficientBalanceError {
+  error: "insufficient_balance";
+  detail: string;
+  available: number;
+  requested: number;
+  fee: number;
+  fee_bearer: string;
+  total_required: number;
+  max_withdrawable: number;
+}
+
 // ── RFQ ─────────────────────────────────────────────────────
 
 export interface QuoteRequest {

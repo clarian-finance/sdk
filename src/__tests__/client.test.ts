@@ -56,4 +56,22 @@ describe("ClarianError", () => {
     expect(err.code).toBe("workspace_mismatch");
     expect(err.message).toBe("Key belongs to a different workspace");
   });
+
+  it("carries extra metadata in .meta", () => {
+    const err = new ClarianError(402, {
+      error: "insufficient_balance",
+      detail: "Your balance is R$ 0.63...",
+      available: 0.63,
+      requested: 0.63,
+      fee: 2.27,
+      fee_bearer: "merchant",
+      total_required: 2.90,
+      max_withdrawable: 0,
+    });
+    expect(err.code).toBe("insufficient_balance");
+    expect(err.meta.available).toBe(0.63);
+    expect(err.meta.fee).toBe(2.27);
+    expect(err.meta.max_withdrawable).toBe(0);
+    expect(err.meta.total_required).toBe(2.90);
+  });
 });
