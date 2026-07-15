@@ -1,6 +1,6 @@
 {
   "name": "@clarian-finance/sdk",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Official TypeScript SDK for the Clarian Finance API",
   "type": "module",
   "main": "./dist/index.cjs",
