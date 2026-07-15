@@ -129,15 +129,6 @@ export interface CashOutOrder {
   updated_at?: string;
 }
 
-export interface DictCheckRequest {
-  pix_key: string;
-  key_type?: string;
-}
-
-export interface DictCheckResult {
-  [key: string]: unknown;
-}
-
 // ── Balances ────────────────────────────────────────────────
 
 export interface Balance {

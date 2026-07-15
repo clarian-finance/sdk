@@ -22,8 +22,6 @@ export type {
   CashInOrder,
   CashOutCreateRequest,
   CashOutOrder,
-  DictCheckRequest,
-  DictCheckResult,
   Balance,
   Wallet,
   WalletNetwork,
