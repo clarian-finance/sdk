@@ -153,7 +153,11 @@ const balances = await clarian.balances.list();
 // Create a webhook subscription
 const { subscription, secret } = await clarian.webhooks.create({
   url: "https://yourapp.com/webhooks/clarian",
-  events: ["pix_payin.completed", "pix_payout.completed"],
+  events: [
+    "pix_payin.completed",
+    "subscription.invoice.paid",
+    "subscription.activated",
+  ],
   description: "Main webhook",
 });
 // Save `secret` securely - shown only once
@@ -166,6 +170,38 @@ await clarian.webhooks.update(subscription.id, { is_active: false });
 
 // Delete
 await clarian.webhooks.delete(subscription.id);
+```
+
+### Products & Subscriptions (v0.2)
+
+Requires the product to be enabled for the workspace in Clarian backoffice
+(`pix_recurring` for PIX subscriptions; `card_payment` / `card_recurring` for card).
+
+```typescript
+// Create a monthly plan (product with cycle)
+const plan = await clarian.products.create({
+  external_id: "vizu-pro-monthly",
+  name: "Vizu Pro",
+  price_cents: 9900,
+  cycle: "monthly",
+});
+
+// Create a PIX subscription — first invoice + QR returned inline
+const { subscription, invoice } = await clarian.subscriptions.create({
+  product_id: plan.id,
+  payment_method: "pix",
+  payer: { name: "Cliente", document: "12345678900", email: "c@example.com" },
+}, "sub-create-001");
+
+console.log(invoice.pix?.emv); // deliver QR / copy-paste to the payer
+
+// List invoices, cancel, change plan
+const invoices = await clarian.subscriptions.listInvoices(subscription.id);
+await clarian.subscriptions.changePlan(subscription.id, { productId: plan.id });
+await clarian.subscriptions.cancel(subscription.id, { at_period_end: true });
+
+// Card charges (returns card_rail_not_ready until GOWD acquiring ships)
+// await clarian.cards.charge({ amount_cents: 5000, card_token_id: "..." }, "chg-001");
 ```
 
 ## Webhook Verification

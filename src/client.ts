@@ -8,6 +8,9 @@ import { Balances } from "./resources/balances.js";
 import { Wallets } from "./resources/wallets.js";
 import { Transactions } from "./resources/transactions.js";
 import { WebhooksAPI } from "./resources/webhooks-api.js";
+import { Products } from "./resources/products.js";
+import { Cards } from "./resources/cards.js";
+import { Subscriptions } from "./resources/subscriptions.js";
 
 export class Clarian {
   readonly rfq: RFQ;
@@ -17,6 +20,9 @@ export class Clarian {
   readonly wallets: Wallets;
   readonly transactions: Transactions;
   readonly webhooks: WebhooksAPI;
+  readonly products: Products;
+  readonly cards: Cards;
+  readonly subscriptions: Subscriptions;
   readonly environment: Environment;
   private readonly config: HttpClientConfig;
 
@@ -34,6 +40,9 @@ export class Clarian {
     this.wallets = new Wallets(this.config);
     this.transactions = new Transactions(this.config);
     this.webhooks = new WebhooksAPI(this.config);
+    this.products = new Products(this.config);
+    this.cards = new Cards(this.config);
+    this.subscriptions = new Subscriptions(this.config);
   }
 
   async ping(): Promise<PingResponse> {
