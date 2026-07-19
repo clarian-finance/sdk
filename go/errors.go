@@ -14,6 +14,9 @@ type APIError struct {
 	Body   string
 }
 
+// Error keeps the message log-safe: raw bodies may echo request fields
+// (pix keys, documents), so only a truncated prefix is included. Full body
+// stays available on the Body field for callers that need it.
 func (e *APIError) Error() string {
 	if e == nil {
 		return "clarian: <nil>"
@@ -22,7 +25,11 @@ func (e *APIError) Error() string {
 		return fmt.Sprintf("clarian: HTTP %d: %s", e.Status, e.Code)
 	}
 	if e.Body != "" {
-		return fmt.Sprintf("clarian: HTTP %d: %s", e.Status, e.Body)
+		body := e.Body
+		if len(body) > 256 {
+			body = body[:256] + "…"
+		}
+		return fmt.Sprintf("clarian: HTTP %d: %s", e.Status, body)
 	}
 	return fmt.Sprintf("clarian: HTTP %d", e.Status)
 }
