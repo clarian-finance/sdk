@@ -20,7 +20,7 @@
 - Sandbox:    `https://api.clarian.finance/functions/v1/api-gateway/test`
 
 The key prefix must match the segment: `cl_live_sk_...` on `/live`, `cl_test_sk_...` on `/test`.
-NOTE: PIX runs only in production — money actions on `/test` are refused (there is no PIX sandbox rail).
+Sandbox (`/test`) has a simulated PIX rail plus sandbox-only helpers (simulate, webhook test/resend).
 
 ## Authentication (every request)
 
@@ -124,6 +124,32 @@ BRL <-> USDT/USDC quotes. quote: `{ base_currency, quote_currency, amount, amoun
 Create: `{ "url": "https://you.example.com/clarian", "events": ["pix_payin.completed","pix_payout.completed"] }`
 → `{ ok, environment, subscription: { id, url, events, ... }, secret: "whsec_..." }`
 The `secret` is shown ONCE — store it. URLs must be public `https://` (internal/loopback hosts are rejected).
+
+### Sandbox-only helpers (require `cl_test_sk_` / `/test` segment; else `404 sandbox_only`)
+
+### POST /pix/payins/:id/simulate
+Body: `{ "status"?: "completed"|"expired"|"failed" }` (default completed)
+→ `200 { ok, environment, order }`
+
+### POST /pix/payouts/:id/simulate
+Body: `{ "status"?: "completed"|"failed" }` (default completed)
+→ `200 { ok, environment, order }`
+
+Magic sandbox PIX keys for payouts: `fail@sandbox.clarian` (fails + refund),
+`pending@sandbox.clarian` (stays pending until simulated).
+
+### POST /webhooks/:id/test
+Body: `{ "event_type": "pix_payin.completed" }` (sample types: pix_payin.created|completed|expired,
+pix_payout.created|completed|failed, checkout.paid)
+→ `202 { ok, environment, event_type, enqueued: { enqueued, delivery_id } }`
+
+### POST /webhooks/deliveries/:id/resend
+→ `202 { ok, delivery_id }`
+
+SDK: `clarian.sandbox.simulateCashIn(id, status?)`, `simulateCashOut(id, status?)`,
+`sendWebhookEvent(subscriptionId, eventType)`, `resendWebhookDelivery(deliveryId)`.
+Also: `signWebhookPayload(body, timestamp, secret)` (hex HMAC for local handler tests),
+`SANDBOX_FAIL_PIX_KEY`, `SANDBOX_PENDING_PIX_KEY`.
 
 ## Receiving webhooks (verify EVERY delivery)
 

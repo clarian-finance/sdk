@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { verifyWebhookSignature, constructWebhookEvent, extractWebhookHeaders } from "../webhooks.js";
+import {
+  verifyWebhookSignature,
+  constructWebhookEvent,
+  extractWebhookHeaders,
+  signWebhookPayload,
+} from "../webhooks.js";
 
 const SECRET = "whsec_test_secret_1234567890";
 
@@ -11,6 +16,19 @@ async function sign(body: string, timestamp: string, secret: string): Promise<st
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(`${timestamp}.${body}`));
   return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+describe("signWebhookPayload", () => {
+  it("roundtrips with verifyWebhookSignature and rejects a tampered body", async () => {
+    const body = '{"type":"pix_payin.completed","amount":100}';
+    const timestamp = new Date().toISOString();
+    const signature = await signWebhookPayload(body, timestamp, SECRET);
+
+    expect(await verifyWebhookSignature(body, signature, timestamp, SECRET)).toBe(true);
+    expect(
+      await verifyWebhookSignature('{"type":"pix_payin.completed","amount":999}', signature, timestamp, SECRET),
+    ).toBe(false);
+  });
+});
 
 describe("verifyWebhookSignature", () => {
   it("accepts a valid signature", async () => {

@@ -4,7 +4,12 @@ export {
   verifyWebhookSignature,
   constructWebhookEvent,
   extractWebhookHeaders,
+  signWebhookPayload,
 } from "./webhooks.js";
+export {
+  SANDBOX_FAIL_PIX_KEY,
+  SANDBOX_PENDING_PIX_KEY,
+} from "./types.js";
 
 export type {
   ClarianConfig,
@@ -37,4 +42,21 @@ export type {
   WebhookUpdateRequest,
   WebhookCreateResponse,
   WebhookPayload,
+  BillingCycle,
+  Product,
+  ProductCreateRequest,
+  ProductListParams,
+  CardToken,
+  CardCharge,
+  CardChargeCreateRequest,
+  Subscription,
+  SubscriptionInvoice,
+  SubscriptionCreateRequest,
+  SubscriptionCreateResponse,
+  SubscriptionListParams,
+  SubscriptionCancelParams,
+  SubscriptionChangePlanParams,
+  SimulateCashInStatus,
+  SimulateCashOutStatus,
+  SampleEventType,
 } from "./types.js";

@@ -3,6 +3,8 @@
 Official TypeScript SDK for the [Clarian Finance](https://clarian.finance) API.
 
 > **Leia em pt-BR:** [README.pt-BR.md](./README.pt-BR.md)
+>
+> **Go:** an official Go SDK lives in [`go/`](./go/) — `go get github.com/clarian-finance/sdk/go`.
 
 ## Install
 
@@ -153,7 +155,11 @@ const balances = await clarian.balances.list();
 // Create a webhook subscription
 const { subscription, secret } = await clarian.webhooks.create({
   url: "https://yourapp.com/webhooks/clarian",
-  events: ["pix_payin.completed", "pix_payout.completed"],
+  events: [
+    "pix_payin.completed",
+    "subscription.invoice.paid",
+    "subscription.activated",
+  ],
   description: "Main webhook",
 });
 // Save `secret` securely - shown only once
@@ -166,6 +172,95 @@ await clarian.webhooks.update(subscription.id, { is_active: false });
 
 // Delete
 await clarian.webhooks.delete(subscription.id);
+```
+
+### Products & Subscriptions (v0.2)
+
+Requires the product to be enabled for the workspace in Clarian backoffice
+(`pix_recurring` for PIX subscriptions; `card_payment` / `card_recurring` for card).
+
+```typescript
+// Create a monthly plan (product with cycle)
+const plan = await clarian.products.create({
+  external_id: "vizu-pro-monthly",
+  name: "Vizu Pro",
+  price_cents: 9900,
+  cycle: "monthly",
+});
+
+// Create a PIX subscription — first invoice + QR returned inline
+const { subscription, invoice } = await clarian.subscriptions.create({
+  product_id: plan.id,
+  payment_method: "pix",
+  payer: { name: "Cliente", document: "12345678900", email: "c@example.com" },
+}, "sub-create-001");
+
+console.log(invoice.pix?.emv); // deliver QR / copy-paste to the payer
+
+// List invoices, cancel, change plan
+const invoices = await clarian.subscriptions.listInvoices(subscription.id);
+await clarian.subscriptions.changePlan(subscription.id, { productId: plan.id });
+await clarian.subscriptions.cancel(subscription.id, { at_period_end: true });
+
+// Card charges (returns card_rail_not_ready until GOWD acquiring ships)
+// await clarian.cards.charge({ amount_cents: 5000, card_token_id: "..." }, "chg-001");
+```
+
+### Sandbox testing
+
+Sandbox-only helpers (`cl_test_sk_` keys). Outside sandbox they throw before any network call.
+
+Magic PIX keys for the sandbox payout rail:
+
+| Key | Behavior |
+|-----|----------|
+| `fail@sandbox.clarian` | Payout fails and funds are refunded |
+| `pending@sandbox.clarian` | Payout stays pending until you simulate it |
+
+```typescript
+import {
+  Clarian,
+  SANDBOX_FAIL_PIX_KEY,
+  SANDBOX_PENDING_PIX_KEY,
+  signWebhookPayload,
+} from "@clarian-finance/sdk";
+
+const clarian = new Clarian({
+  apiKey: "cl_test_sk_your_key_here",
+  workspaceId: "your-workspace-uuid",
+});
+
+// Simulate a payin settling (default status: completed)
+const paid = await clarian.sandbox.simulateCashIn(deposit.id);
+// Or: "expired" | "failed"
+await clarian.sandbox.simulateCashIn(deposit.id, "expired");
+
+// Create a payout that stays pending, then complete it
+const pendingPayout = await clarian.cashOut.create(
+  { amount: 10, pix_key: SANDBOX_PENDING_PIX_KEY },
+  "payout-sim-001",
+);
+const settled = await clarian.sandbox.simulateCashOut(pendingPayout.id, "completed");
+
+// Force a failed payout
+await clarian.cashOut.create(
+  { amount: 10, pix_key: SANDBOX_FAIL_PIX_KEY },
+  "payout-fail-001",
+);
+
+// Enqueue a sample webhook to a subscription
+const { enqueued, delivery_id } = await clarian.sandbox.sendWebhookEvent(
+  subscription.id,
+  "pix_payin.completed",
+);
+
+// Re-queue a previous delivery
+const { deliveryId } = await clarian.sandbox.resendWebhookDelivery(delivery_id!);
+
+// Sign a payload locally to unit-test your webhook handler
+const timestamp = new Date().toISOString();
+const body = JSON.stringify({ amount: 100, status: "completed" });
+const signature = await signWebhookPayload(body, timestamp, webhookSecret);
 ```
 
 ## Webhook Verification

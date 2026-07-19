@@ -3,6 +3,8 @@
 SDK oficial em TypeScript para a API da [Clarian Finance](https://clarian.finance).
 
 > **Read in English:** [README.md](./README.md)
+>
+> **Go:** o SDK oficial em Go fica em [`go/`](./go/), instale com `go get github.com/clarian-finance/sdk/go`.
 
 ## Instalação
 
@@ -166,6 +168,63 @@ await clarian.webhooks.update(subscription.id, { is_active: false });
 
 // Remover
 await clarian.webhooks.delete(subscription.id);
+```
+
+### Testes no sandbox
+
+Helpers exclusivos do sandbox (chaves `cl_test_sk_`). Fora do sandbox, lançam erro antes de qualquer chamada de rede.
+
+Chaves PIX mágicas do rail de payout no sandbox:
+
+| Chave | Comportamento |
+|-------|---------------|
+| `fail@sandbox.clarian` | Payout falha e o valor é estornado |
+| `pending@sandbox.clarian` | Payout fica pendente até você simular |
+
+```typescript
+import {
+  Clarian,
+  SANDBOX_FAIL_PIX_KEY,
+  SANDBOX_PENDING_PIX_KEY,
+  signWebhookPayload,
+} from "@clarian-finance/sdk";
+
+const clarian = new Clarian({
+  apiKey: "cl_test_sk_sua_chave_aqui",
+  workspaceId: "seu-workspace-uuid",
+});
+
+// Simular liquidação de um cash-in (status padrão: completed)
+const pago = await clarian.sandbox.simulateCashIn(deposito.id);
+// Ou: "expired" | "failed"
+await clarian.sandbox.simulateCashIn(deposito.id, "expired");
+
+// Criar um payout que fica pendente e depois completar
+const payoutPendente = await clarian.cashOut.create(
+  { amount: 10, pix_key: SANDBOX_PENDING_PIX_KEY },
+  "payout-sim-001",
+);
+const liquidado = await clarian.sandbox.simulateCashOut(payoutPendente.id, "completed");
+
+// Forçar um payout com falha
+await clarian.cashOut.create(
+  { amount: 10, pix_key: SANDBOX_FAIL_PIX_KEY },
+  "payout-fail-001",
+);
+
+// Enfileirar um webhook de exemplo em uma assinatura
+const { enqueued, delivery_id } = await clarian.sandbox.sendWebhookEvent(
+  subscription.id,
+  "pix_payin.completed",
+);
+
+// Reenviar uma entrega anterior
+const { deliveryId } = await clarian.sandbox.resendWebhookDelivery(delivery_id!);
+
+// Assinar um payload localmente para testar o handler de webhooks
+const timestamp = new Date().toISOString();
+const body = JSON.stringify({ amount: 100, status: "completed" });
+const signature = await signWebhookPayload(body, timestamp, webhookSecret);
 ```
 
 ## Verificação de Webhooks
