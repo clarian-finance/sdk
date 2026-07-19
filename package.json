@@ -1,6 +1,6 @@
 {
   "name": "@clarian-finance/sdk",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Official TypeScript SDK for the Clarian Finance API",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -30,6 +30,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "npx tsc --noEmit",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

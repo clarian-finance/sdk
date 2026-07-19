@@ -4,13 +4,33 @@ Official TypeScript SDK for the [Clarian Finance](https://clarian.finance) API.
 
 > **Leia em pt-BR:** [README.pt-BR.md](./README.pt-BR.md)
 >
-> **Go:** an official Go SDK lives in [`go/`](./go/) — `go get github.com/clarian-finance/sdk/go`.
+> **Go:** an official Go SDK lives in [`go/`](./go/) — `go get github.com/clarian-finance/sdk/go@v0.3.1`.
 
 ## Install
 
+### TypeScript / JavaScript (npm)
+
 ```bash
-npm install github:clarian-finance/sdk
+npm install github:clarian-finance/sdk#v0.3.1
 ```
+
+No token required — the package builds on install. Omit `#v0.3.1` to track `main`.
+
+Alternatively, via GitHub Packages (requires a GitHub token with `read:packages`):
+
+```bash
+echo "@clarian-finance:registry=https://npm.pkg.github.com" >> .npmrc
+echo "//npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN" >> .npmrc
+npm install @clarian-finance/sdk@0.3.1
+```
+
+### Go
+
+```bash
+go get github.com/clarian-finance/sdk/go@v0.3.1
+```
+
+Requires Go 1.21+. Package name is `clarian`; see [`go/README.md`](./go/README.md).
 
 ## Quick Start
 

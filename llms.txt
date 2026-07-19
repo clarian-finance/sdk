@@ -164,7 +164,7 @@ Event types include: `pix_payin.completed`, `pix_payin.expired`, `pix_payout.com
 
 ## SDK (recommended)
 
-    npm install github:clarian-finance/sdk
+    npm install github:clarian-finance/sdk#v0.3.1
 
     import { Clarian, constructWebhookEvent, extractWebhookHeaders } from "@clarian-finance/sdk";
 
