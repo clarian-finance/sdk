@@ -3,6 +3,8 @@
 SDK oficial em TypeScript para a API da [Clarian Finance](https://clarian.finance).
 
 > **Read in English:** [README.md](./README.md)
+>
+> **Go:** o SDK oficial em Go fica em [`go/`](./go/), instale com `go get github.com/clarian-finance/sdk/go`.
 
 ## Instalação
 
