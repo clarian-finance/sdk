@@ -427,3 +427,25 @@ export interface WebhookPayload<T = unknown> {
   attempt: number;
   data: T;
 }
+
+// ── Sandbox helpers ─────────────────────────────────────────
+
+export type SimulateCashInStatus = "completed" | "expired" | "failed";
+
+export type SimulateCashOutStatus = "completed" | "failed";
+
+/** Sample event types accepted by POST /webhooks/:id/test (sandbox only). */
+export type SampleEventType =
+  | "pix_payin.created"
+  | "pix_payin.completed"
+  | "pix_payin.expired"
+  | "pix_payout.created"
+  | "pix_payout.completed"
+  | "pix_payout.failed"
+  | "checkout.paid";
+
+/** PIX key that forces sandbox payout failure + refund. */
+export const SANDBOX_FAIL_PIX_KEY = "fail@sandbox.clarian" as const;
+
+/** PIX key that keeps sandbox payout pending until simulated. */
+export const SANDBOX_PENDING_PIX_KEY = "pending@sandbox.clarian" as const;

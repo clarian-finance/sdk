@@ -206,6 +206,63 @@ await clarian.subscriptions.cancel(subscription.id, { at_period_end: true });
 // await clarian.cards.charge({ amount_cents: 5000, card_token_id: "..." }, "chg-001");
 ```
 
+### Sandbox testing
+
+Sandbox-only helpers (`cl_test_sk_` keys). Outside sandbox they throw before any network call.
+
+Magic PIX keys for the sandbox payout rail:
+
+| Key | Behavior |
+|-----|----------|
+| `fail@sandbox.clarian` | Payout fails and funds are refunded |
+| `pending@sandbox.clarian` | Payout stays pending until you simulate it |
+
+```typescript
+import {
+  Clarian,
+  SANDBOX_FAIL_PIX_KEY,
+  SANDBOX_PENDING_PIX_KEY,
+  signWebhookPayload,
+} from "@clarian-finance/sdk";
+
+const clarian = new Clarian({
+  apiKey: "cl_test_sk_your_key_here",
+  workspaceId: "your-workspace-uuid",
+});
+
+// Simulate a payin settling (default status: completed)
+const paid = await clarian.sandbox.simulateCashIn(deposit.id);
+// Or: "expired" | "failed"
+await clarian.sandbox.simulateCashIn(deposit.id, "expired");
+
+// Create a payout that stays pending, then complete it
+const pendingPayout = await clarian.cashOut.create(
+  { amount: 10, pix_key: SANDBOX_PENDING_PIX_KEY },
+  "payout-sim-001",
+);
+const settled = await clarian.sandbox.simulateCashOut(pendingPayout.id, "completed");
+
+// Force a failed payout
+await clarian.cashOut.create(
+  { amount: 10, pix_key: SANDBOX_FAIL_PIX_KEY },
+  "payout-fail-001",
+);
+
+// Enqueue a sample webhook to a subscription
+const { enqueued, delivery_id } = await clarian.sandbox.sendWebhookEvent(
+  subscription.id,
+  "pix_payin.completed",
+);
+
+// Re-queue a previous delivery
+const { deliveryId } = await clarian.sandbox.resendWebhookDelivery(delivery_id!);
+
+// Sign a payload locally to unit-test your webhook handler
+const timestamp = new Date().toISOString();
+const body = JSON.stringify({ amount: 100, status: "completed" });
+const signature = await signWebhookPayload(body, timestamp, webhookSecret);
+```
+
 ## Webhook Verification
 
 Verify incoming webhook signatures to ensure authenticity:

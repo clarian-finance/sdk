@@ -31,6 +31,7 @@ type Client struct {
 	Balances     *BalancesService
 	Transactions *TransactionsService
 	Webhooks     *WebhooksService
+	Sandbox      *SandboxService
 }
 
 // Option configures a Client.
@@ -73,6 +74,7 @@ func New(apiKey, workspaceID string, opts ...Option) *Client {
 	c.Balances = &BalancesService{c: c}
 	c.Transactions = &TransactionsService{c: c}
 	c.Webhooks = &WebhooksService{c: c}
+	c.Sandbox = &SandboxService{c: c}
 	return c
 }
 

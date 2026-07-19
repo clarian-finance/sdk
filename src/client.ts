@@ -11,6 +11,7 @@ import { WebhooksAPI } from "./resources/webhooks-api.js";
 import { Products } from "./resources/products.js";
 import { Cards } from "./resources/cards.js";
 import { Subscriptions } from "./resources/subscriptions.js";
+import { Sandbox } from "./resources/sandbox.js";
 
 export class Clarian {
   readonly rfq: RFQ;
@@ -23,6 +24,7 @@ export class Clarian {
   readonly products: Products;
   readonly cards: Cards;
   readonly subscriptions: Subscriptions;
+  readonly sandbox: Sandbox;
   readonly environment: Environment;
   private readonly config: HttpClientConfig;
 
@@ -43,6 +45,7 @@ export class Clarian {
     this.products = new Products(this.config);
     this.cards = new Cards(this.config);
     this.subscriptions = new Subscriptions(this.config);
+    this.sandbox = new Sandbox(this.config);
   }
 
   async ping(): Promise<PingResponse> {

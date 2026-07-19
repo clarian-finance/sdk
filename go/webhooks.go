@@ -23,6 +23,14 @@ const (
 	HeaderAttempt        = "X-Clarian-Attempt"
 )
 
+// SignPayload returns the hex HMAC-SHA256 of timestamp+"."+payload using secret.
+// Use with VerifyWebhook in local handler tests (inverse of the verify step).
+func SignPayload(secret, timestamp string, payload []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(timestamp + "." + string(payload)))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
 // VerifyWebhook checks HMAC-SHA256 signature and timestamp freshness, then
 // parses the envelope. Signature = hex(HMAC-SHA256(secret, timestamp+"."+rawBody))
 // where secret is the full whsec_… string (prefix included). Fail-closed on

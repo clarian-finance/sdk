@@ -128,3 +128,35 @@ func TestVerifyWebhook(t *testing.T) {
 		}
 	})
 }
+
+func TestSignPayload_roundtrip(t *testing.T) {
+	t.Parallel()
+	const secret = "whsec_test_secret"
+	body := []byte(`{"id":"evt_1","type":"pix_payin.completed","created_at":"2026-01-01T00:00:00Z","environment":"sandbox","data":{"transaction_id":"ord_abc","status":"completed","amount":19.50,"fee":0.37,"currency":"BRL"}}`)
+	ts := time.Now().UTC().Format(time.RFC3339Nano)
+
+	t.Run("valid passes VerifyWebhook", func(t *testing.T) {
+		t.Parallel()
+		h := http.Header{}
+		h.Set(HeaderTimestamp, ts)
+		h.Set(HeaderSignature, SignPayload(secret, ts, body))
+		evt, err := VerifyWebhook(body, h, secret)
+		if err != nil {
+			t.Fatalf("VerifyWebhook: %v", err)
+		}
+		if evt.Type != "pix_payin.completed" {
+			t.Errorf("type = %q", evt.Type)
+		}
+	})
+
+	t.Run("tampered payload fails", func(t *testing.T) {
+		t.Parallel()
+		h := http.Header{}
+		h.Set(HeaderTimestamp, ts)
+		h.Set(HeaderSignature, SignPayload(secret, ts, body))
+		tampered := []byte(`{"id":"evt_1","type":"pix_payin.completed","data":{"transaction_id":"ord_evil","status":"completed","amount":19.50}}`)
+		if _, err := VerifyWebhook(tampered, h, secret); err == nil {
+			t.Fatal("expected error for tampered body")
+		}
+	})
+}

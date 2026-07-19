@@ -18,6 +18,15 @@ async function hmacSHA256(message: string, secret: string): Promise<string> {
 
 const DEFAULT_TOLERANCE_MS = 300_000; // 5 minutes
 
+/** Sign a webhook body for local handler tests (inverse of verifyWebhookSignature). */
+export async function signWebhookPayload(
+  body: string,
+  timestamp: string,
+  secret: string,
+): Promise<string> {
+  return hmacSHA256(`${timestamp}.${body}`, secret);
+}
+
 export async function verifyWebhookSignature(
   body: string,
   signature: string,
@@ -28,7 +37,7 @@ export async function verifyWebhookSignature(
   const age = Math.abs(Date.now() - new Date(timestamp).getTime());
   if (age > toleranceMs) return false;
 
-  const expected = await hmacSHA256(`${timestamp}.${body}`, secret);
+  const expected = await signWebhookPayload(body, timestamp, secret);
   if (expected.length !== signature.length) return false;
 
   let mismatch = 0;

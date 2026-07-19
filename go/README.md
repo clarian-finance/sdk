@@ -183,6 +183,39 @@ Server-side rules that commonly cause `400` on create/update:
 - **`url` must be public `https`** — the gateway rejects `http`, loopback, and internal hosts.
 - **`events` must be from the server's subscribable list** (e.g. `pix_payin.completed`, `pix_payout.failed`, …). Unknown event names are rejected.
 
+## Sandbox testing
+
+Sandbox-only helpers live on `client.Sandbox`. They require a `cl_test_sk_…` key and refuse live keys **before** any HTTP call. Outside the test environment the gateway returns `404 {error:"sandbox_only"}`.
+
+```go
+// Advance a pending cash-in (empty status → completed).
+order, err := client.Sandbox.SimulateCashIn(ctx, charge.Order.ID, "completed")
+// status: "completed" | "expired" | "failed"
+
+// Advance a cash-out: "completed" | "failed"
+_, err = client.Sandbox.SimulateCashOut(ctx, payout.Order.ID, "failed")
+
+// Magic PIX keys the sandbox payout rail honors:
+//   clarian.SandboxFailPixKey    → fail@sandbox.clarian
+//   clarian.SandboxPendingPixKey → pending@sandbox.clarian
+_, _ = client.CashOut.Create(ctx, "payout-fail-1", clarian.CashOutRequest{
+	Amount: json.Number("10.00"),
+	PixKey: clarian.SandboxFailPixKey,
+})
+
+// Enqueue a sample webhook for a subscription (event type constants available).
+result, err := client.Sandbox.SendWebhookEvent(ctx, sub.ID, clarian.EventPixPayinCompleted)
+// result.DeliveryID is the new delivery id when present
+
+// Re-send an existing delivery
+newID, err := client.Sandbox.ResendWebhookDelivery(ctx, result.DeliveryID)
+
+// Local handler tests: sign a payload the same way the server does
+sig := clarian.SignPayload(secret, timestamp, rawBody)
+```
+
+Sample event types: `pix_payin.created`, `pix_payin.completed`, `pix_payin.expired`, `pix_payout.created`, `pix_payout.completed`, `pix_payout.failed`, `checkout.paid` (constants `EventPixPayinCreated`, …).
+
 ## API surface
 
 | Method | Path | Client |
@@ -197,6 +230,11 @@ Server-side rules that commonly cause `400` on create/update:
 | `GET` | `/transactions/{id}` | `client.Transactions.Get(ctx, id)` |
 | — | webhooks CRUD | `client.Webhooks.Create/List/Get/Update/Delete` |
 | — | verify delivery | `clarian.VerifyWebhook(payload, headers, secret)` |
+| — | sign payload (tests) | `clarian.SignPayload(secret, timestamp, payload)` |
+| `POST` | `/pix/payins/{id}/simulate` | `client.Sandbox.SimulateCashIn(ctx, id, status)` |
+| `POST` | `/pix/payouts/{id}/simulate` | `client.Sandbox.SimulateCashOut(ctx, id, status)` |
+| `POST` | `/webhooks/{id}/test` | `client.Sandbox.SendWebhookEvent(ctx, id, eventType)` |
+| `POST` | `/webhooks/deliveries/{id}/resend` | `client.Sandbox.ResendWebhookDelivery(ctx, id)` |
 
 ## Development
 
