@@ -100,7 +100,7 @@ const deposito = await clarian.cashIn.create({
     document: { number: "12345678900" },
   },
   description: "Fatura #42",
-  expiration_seconds: 3600,
+  expiration_seconds: 3600, // padrao do servidor: 1800 (30 min); aumente para fluxos tipo fatura
 }, "deposito-fatura-42");
 
 // Consultar um depósito
