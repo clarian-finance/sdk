@@ -7,7 +7,7 @@ Module: `github.com/clarian-finance/sdk/go` · package `clarian` · **stdlib onl
 ## Install
 
 ```bash
-go get github.com/clarian-finance/sdk/go@v0.3.1
+go get github.com/clarian-finance/sdk/go@v0.4.0
 ```
 
 Requires Go 1.21+.

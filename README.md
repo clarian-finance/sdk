@@ -3,34 +3,36 @@
 Official TypeScript SDK for the [Clarian Finance](https://clarian.finance) API.
 
 > **Leia em pt-BR:** [README.pt-BR.md](./README.pt-BR.md)
->
-> **Go:** an official Go SDK lives in [`go/`](./go/) — `go get github.com/clarian-finance/sdk/go@v0.3.1`.
 
-## Install
+This monorepo hosts the official Clarian SDKs for seven languages, all released together at the same version:
 
-### TypeScript / JavaScript (npm)
+| Language | Directory | Install |
+|----------|-----------|---------|
+| TypeScript / JavaScript | root (`src/`) | `npm install github:clarian-finance/sdk#v0.4.0` |
+| Go | [`go/`](./go/) | `go get github.com/clarian-finance/sdk/go@v0.4.0` |
+| Python | [`python/`](./python/) | `pip install "git+https://github.com/clarian-finance/sdk.git@v0.4.0#subdirectory=python"` |
+| Java | [`java/`](./java/) | clone + `gradle publishToMavenLocal` → `finance.clarian:clarian-sdk:0.4.0` ([details](./java/README.md)) |
+| C# / .NET | [`dotnet/`](./dotnet/) | clone + `dotnet pack` ([details](./dotnet/README.md)) |
+| PHP | [`php/`](./php/) | Composer path repository ([details](./php/README.md)) |
+| Ruby | [`ruby/`](./ruby/) | `gem "clarian", git: "https://github.com/clarian-finance/sdk.git", tag: "v0.4.0", glob: "ruby/*.gemspec"` |
+
+Every SDK ships the same surface: PIX cash-in/cash-out, balances, transactions, wallets, webhook subscriptions, webhook signature verification, and sandbox test helpers. Each directory has its own README with a quickstart.
+
+## Install (TypeScript)
 
 ```bash
-npm install github:clarian-finance/sdk#v0.3.1
+npm install github:clarian-finance/sdk#v0.4.0
 ```
 
-No token required — the package builds on install. Omit `#v0.3.1` to track `main`.
+No token required — the package builds on install. Omit `#v0.4.0` to track `main`.
 
 Alternatively, via GitHub Packages (requires a GitHub token with `read:packages`):
 
 ```bash
 echo "@clarian-finance:registry=https://npm.pkg.github.com" >> .npmrc
 echo "//npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN" >> .npmrc
-npm install @clarian-finance/sdk@0.3.1
+npm install @clarian-finance/sdk@0.4.0
 ```
-
-### Go
-
-```bash
-go get github.com/clarian-finance/sdk/go@v0.3.1
-```
-
-Requires Go 1.21+. Package name is `clarian`; see [`go/README.md`](./go/README.md).
 
 ## Quick Start
 

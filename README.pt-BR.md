@@ -3,13 +3,23 @@
 SDK oficial em TypeScript para a API da [Clarian Finance](https://clarian.finance).
 
 > **Read in English:** [README.md](./README.md)
->
-> **Go:** o SDK oficial em Go fica em [`go/`](./go/), instale com `go get github.com/clarian-finance/sdk/go@v0.3.1`.
 
-## Instalação
+Este monorepo hospeda os SDKs oficiais da Clarian em sete linguagens, todas lançadas juntas na mesma versão:
+
+| Linguagem | Diretório | Instalação |
+|-----------|-----------|------------|
+| TypeScript / JavaScript | raiz (`src/`) | `npm install github:clarian-finance/sdk#v0.4.0` |
+| Go | [`go/`](./go/) | `go get github.com/clarian-finance/sdk/go@v0.4.0` |
+| Python | [`python/`](./python/) | `pip install "git+https://github.com/clarian-finance/sdk.git@v0.4.0#subdirectory=python"` |
+| Java | [`java/`](./java/) | clone + `gradle publishToMavenLocal` ([detalhes](./java/README.md)) |
+| C# / .NET | [`dotnet/`](./dotnet/) | clone + `dotnet pack` ([detalhes](./dotnet/README.md)) |
+| PHP | [`php/`](./php/) | Composer path repository ([detalhes](./php/README.md)) |
+| Ruby | [`ruby/`](./ruby/) | `gem "clarian", git: "https://github.com/clarian-finance/sdk.git", tag: "v0.4.0", glob: "ruby/*.gemspec"` |
+
+## Instalação (TypeScript)
 
 ```bash
-npm install github:clarian-finance/sdk#v0.3.1
+npm install github:clarian-finance/sdk#v0.4.0
 ```
 
 ## Início rápido

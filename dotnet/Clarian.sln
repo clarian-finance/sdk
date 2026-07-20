@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Clarian.Sdk", "Clarian.Sdk\Clarian.Sdk.csproj", "{82DFD882-83C7-42BB-A90C-98BCB3CED6DD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Clarian.Sdk.Tests", "Clarian.Sdk.Tests\Clarian.Sdk.Tests.csproj", "{11B7C7A4-A58A-4331-8D7D-F1BE729A3206}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{82DFD882-83C7-42BB-A90C-98BCB3CED6DD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{82DFD882-83C7-42BB-A90C-98BCB3CED6DD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{82DFD882-83C7-42BB-A90C-98BCB3CED6DD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{82DFD882-83C7-42BB-A90C-98BCB3CED6DD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{11B7C7A4-A58A-4331-8D7D-F1BE729A3206}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{11B7C7A4-A58A-4331-8D7D-F1BE729A3206}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{11B7C7A4-A58A-4331-8D7D-F1BE729A3206}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{11B7C7A4-A58A-4331-8D7D-F1BE729A3206}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

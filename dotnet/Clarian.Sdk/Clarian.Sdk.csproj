@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Clarian</RootNamespace>
+    <AssemblyName>Clarian.Sdk</AssemblyName>
+    <PackageId>Clarian.Sdk</PackageId>
+    <Version>0.4.0</Version>
+    <Authors>Clarian Finance</Authors>
+    <Description>Official .NET SDK for the Clarian Finance API. Zero runtime dependencies.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/clarian-finance/sdk</RepositoryUrl>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>
