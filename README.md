@@ -8,30 +8,30 @@ This monorepo hosts the official Clarian SDKs for seven languages, all released 
 
 | Language | Directory | Install |
 |----------|-----------|---------|
-| TypeScript / JavaScript | root (`src/`) | `npm install github:clarian-finance/sdk#v0.4.0` |
-| Go | [`go/`](./go/) | `go get github.com/clarian-finance/sdk/go@v0.4.0` |
-| Python | [`python/`](./python/) | `pip install "git+https://github.com/clarian-finance/sdk.git@v0.4.0#subdirectory=python"` |
-| Java | [`java/`](./java/) | clone + `gradle publishToMavenLocal` → `finance.clarian:clarian-sdk:0.4.0` ([details](./java/README.md)) |
+| TypeScript / JavaScript | root (`src/`) | `npm install github:clarian-finance/sdk#v0.4.1` |
+| Go | [`go/`](./go/) | `go get github.com/clarian-finance/sdk/go@v0.4.1` |
+| Python | [`python/`](./python/) | `pip install "git+https://github.com/clarian-finance/sdk.git@v0.4.1#subdirectory=python"` |
+| Java | [`java/`](./java/) | clone + `gradle publishToMavenLocal` → `finance.clarian:clarian-sdk:0.4.1` ([details](./java/README.md)) |
 | C# / .NET | [`dotnet/`](./dotnet/) | clone + `dotnet pack` ([details](./dotnet/README.md)) |
 | PHP | [`php/`](./php/) | Composer path repository ([details](./php/README.md)) |
-| Ruby | [`ruby/`](./ruby/) | `gem "clarian", git: "https://github.com/clarian-finance/sdk.git", tag: "v0.4.0", glob: "ruby/*.gemspec"` |
+| Ruby | [`ruby/`](./ruby/) | `gem "clarian", git: "https://github.com/clarian-finance/sdk.git", tag: "v0.4.1", glob: "ruby/*.gemspec"` |
 
 Every SDK ships the same surface: PIX cash-in/cash-out, balances, transactions, wallets, webhook subscriptions, webhook signature verification, and sandbox test helpers. Each directory has its own README with a quickstart.
 
 ## Install (TypeScript)
 
 ```bash
-npm install github:clarian-finance/sdk#v0.4.0
+npm install github:clarian-finance/sdk#v0.4.1
 ```
 
-No token required — the package builds on install. Omit `#v0.4.0` to track `main`.
+No token required — the package builds on install. Omit `#v0.4.1` to track `main`.
 
 Alternatively, via GitHub Packages (requires a GitHub token with `read:packages`):
 
 ```bash
 echo "@clarian-finance:registry=https://npm.pkg.github.com" >> .npmrc
 echo "//npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN" >> .npmrc
-npm install @clarian-finance/sdk@0.4.0
+npm install @clarian-finance/sdk@0.4.1
 ```
 
 ## Quick Start
@@ -112,7 +112,6 @@ const deposit = await clarian.cashIn.create({
     document: { number: "12345678900" },
   },
   description: "Invoice #42",
-  expiration_seconds: 3600, // default 1800 (30 min), max 604800 (7 days); raise for invoice-style flows
 }, "deposit-inv-42");
 
 // Retrieve a deposit

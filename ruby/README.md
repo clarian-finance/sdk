@@ -12,7 +12,7 @@ Until the gem is published to RubyGems, install from this monorepo with Bundler:
 # Gemfile
 gem "clarian",
   git: "https://github.com/clarian-finance/sdk.git",
-  tag: "v0.4.0",
+  tag: "v0.4.1",
   glob: "ruby/*.gemspec"
 ```
 

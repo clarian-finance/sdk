@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clarian-sdk"
-version = "0.4.0"
+version = "0.4.1"
 description = "Official Python SDK for the Clarian Finance API"
 readme = "README.md"
 requires-python = ">=3.9"

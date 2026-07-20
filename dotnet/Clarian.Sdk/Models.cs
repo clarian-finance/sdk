@@ -24,10 +24,6 @@ public sealed class CashInRequest
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Description { get; set; }
 
-    [JsonPropertyName("expiration_seconds")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int? ExpirationSeconds { get; set; }
-
     [JsonPropertyName("external_id")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ExternalId { get; set; }

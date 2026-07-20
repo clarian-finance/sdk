@@ -7,7 +7,7 @@ Package: `clarian` · distribution: `clarian-sdk` · **stdlib only** (no third-p
 ## Install
 
 ```bash
-pip install "git+https://github.com/clarian-finance/sdk.git@v0.4.0#subdirectory=python"
+pip install "git+https://github.com/clarian-finance/sdk.git@v0.4.1#subdirectory=python"
 ```
 
 ## Quickstart

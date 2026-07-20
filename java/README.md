@@ -2,7 +2,7 @@
 
 Official Java SDK for the [Clarian Finance API](https://api.clarian.finance). PIX cash-in/cash-out, balances, wallets, transactions, and webhooks.
 
-Package: `finance.clarian.sdk` · coordinates: `finance.clarian:clarian-sdk:0.4.0` · **stdlib only** (no third-party runtime dependencies). Requires Java 17+.
+Package: `finance.clarian.sdk` · coordinates: `finance.clarian:clarian-sdk:0.4.1` · **stdlib only** (no third-party runtime dependencies). Requires Java 17+.
 
 ## Install
 
@@ -23,7 +23,7 @@ repositories {
     mavenCentral()
 }
 dependencies {
-    implementation("finance.clarian:clarian-sdk:0.4.0")
+    implementation("finance.clarian:clarian-sdk:0.4.1")
 }
 ```
 
@@ -33,7 +33,7 @@ dependencies {
 <dependency>
   <groupId>finance.clarian</groupId>
   <artifactId>clarian-sdk</artifactId>
-  <version>0.4.0</version>
+  <version>0.4.1</version>
 </dependency>
 ```
 

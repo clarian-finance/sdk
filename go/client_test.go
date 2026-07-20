@@ -122,31 +122,6 @@ func TestCashInCreate_idempotencyAndPayer(t *testing.T) {
 	}
 }
 
-func TestCashInCreate_expirationSeconds(t *testing.T) {
-	t.Parallel()
-	var gotBody string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		gotBody = string(raw)
-		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"ok":true,"order":{"id":"ord_2","status":"pending","amount":10.00,"pix":{}}}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("cl_test_sk_x", "ws", WithBaseURL(srv.URL))
-	_, err := c.CashIn.Create(context.Background(), "pay-exp", CashInRequest{
-		Amount:            json.Number("10.00"),
-		Payer:             Payer{Name: "A", DocumentNumber: "52998224725"},
-		ExpirationSeconds: 900,
-	})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if !strings.Contains(gotBody, `"expiration_seconds":900`) {
-		t.Errorf("body missing expiration_seconds: %s", gotBody)
-	}
-}
-
 func TestCashOutCreate_idempotencyAndPixKeyType(t *testing.T) {
 	t.Parallel()
 	var gotIdem, gotBody string

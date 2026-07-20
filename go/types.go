@@ -43,11 +43,10 @@ type Payer struct {
 
 // CashInRequest creates a dynamic PIX charge.
 type CashInRequest struct {
-	Amount            json.Number `json:"amount"`
-	Payer             Payer       `json:"payer"`
-	Description       string      `json:"description,omitempty"`
-	ExpirationSeconds int         `json:"expiration_seconds,omitempty"`
-	ExternalID        string      `json:"external_id,omitempty"`
+	Amount      json.Number `json:"amount"`
+	Payer       Payer       `json:"payer"`
+	Description string      `json:"description,omitempty"`
+	ExternalID  string      `json:"external_id,omitempty"`
 }
 
 // PixDetails holds the EMV payload and optional QR image for a cash-in.

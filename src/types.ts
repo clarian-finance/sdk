@@ -91,7 +91,6 @@ export interface CashInCreateRequest {
   amount: number;
   payer: Payer;
   description?: string;
-  expiration_seconds?: number;
   external_id?: string;
   customer_id?: string;
 }

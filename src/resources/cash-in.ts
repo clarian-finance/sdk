@@ -15,7 +15,6 @@ export class CashIn {
         document: params.payer.document,
       },
       description: params.description,
-      expiration_seconds: params.expiration_seconds,
       external_id: params.external_id,
       customer_id: params.customer_id,
     };

@@ -55,7 +55,6 @@ Request:
     { "amount": 250.00,
       "payer": { "name": "Maria Silva", "document": { "number": "12345678900" } },
       "description": "Order #123",        // optional
-      "expiration_seconds": 3600,          // optional, default 1800 (30 min), max 604800 (7 days)
       "customer_id": "<uuid>" }            // optional: credit a sub-account
 
 Response `201`:
@@ -164,7 +163,7 @@ Event types include: `pix_payin.completed`, `pix_payin.expired`, `pix_payout.com
 
 ## SDK (recommended)
 
-    npm install github:clarian-finance/sdk#v0.4.0
+    npm install github:clarian-finance/sdk#v0.4.1
 
     import { Clarian, constructWebhookEvent, extractWebhookHeaders } from "@clarian-finance/sdk";
 

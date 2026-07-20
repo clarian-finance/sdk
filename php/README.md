@@ -21,7 +21,7 @@ git clone https://github.com/clarian-finance/sdk.git
     }
   ],
   "require": {
-    "clarian-finance/sdk-php": "0.4.0"
+    "clarian-finance/sdk-php": "0.4.1"
   }
 }
 ```

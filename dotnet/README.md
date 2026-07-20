@@ -2,7 +2,7 @@
 
 Official .NET SDK for the [Clarian Finance API](https://api.clarian.finance). PIX cash-in/cash-out, balances, wallets, transactions, and webhooks.
 
-Package: `Clarian` namespace · NuGet package id: `Clarian.Sdk` · version **0.4.0** · **stdlib only** (HttpClient + System.Text.Json). Targets `net8.0`.
+Package: `Clarian` namespace · NuGet package id: `Clarian.Sdk` · version **0.4.1** · **stdlib only** (HttpClient + System.Text.Json). Targets `net8.0`.
 
 ## Install
 
@@ -19,12 +19,12 @@ Then in your app:
 
 ```xml
 <!-- Directory.Build.props or NuGet.config: add a local source pointing at ./nupkg -->
-<PackageReference Include="Clarian.Sdk" Version="0.4.0" />
+<PackageReference Include="Clarian.Sdk" Version="0.4.1" />
 ```
 
 ```bash
 dotnet nuget add source /absolute/path/to/sdk/dotnet/nupkg --name clarian-local
-dotnet add package Clarian.Sdk --version 0.4.0 --source clarian-local
+dotnet add package Clarian.Sdk --version 0.4.1 --source clarian-local
 ```
 
 ### ProjectReference (monorepo)

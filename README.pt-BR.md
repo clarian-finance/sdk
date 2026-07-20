@@ -8,18 +8,18 @@ Este monorepo hospeda os SDKs oficiais da Clarian em sete linguagens, todas lan�
 
 | Linguagem | Diretório | Instalação |
 |-----------|-----------|------------|
-| TypeScript / JavaScript | raiz (`src/`) | `npm install github:clarian-finance/sdk#v0.4.0` |
-| Go | [`go/`](./go/) | `go get github.com/clarian-finance/sdk/go@v0.4.0` |
-| Python | [`python/`](./python/) | `pip install "git+https://github.com/clarian-finance/sdk.git@v0.4.0#subdirectory=python"` |
+| TypeScript / JavaScript | raiz (`src/`) | `npm install github:clarian-finance/sdk#v0.4.1` |
+| Go | [`go/`](./go/) | `go get github.com/clarian-finance/sdk/go@v0.4.1` |
+| Python | [`python/`](./python/) | `pip install "git+https://github.com/clarian-finance/sdk.git@v0.4.1#subdirectory=python"` |
 | Java | [`java/`](./java/) | clone + `gradle publishToMavenLocal` ([detalhes](./java/README.md)) |
 | C# / .NET | [`dotnet/`](./dotnet/) | clone + `dotnet pack` ([detalhes](./dotnet/README.md)) |
 | PHP | [`php/`](./php/) | Composer path repository ([detalhes](./php/README.md)) |
-| Ruby | [`ruby/`](./ruby/) | `gem "clarian", git: "https://github.com/clarian-finance/sdk.git", tag: "v0.4.0", glob: "ruby/*.gemspec"` |
+| Ruby | [`ruby/`](./ruby/) | `gem "clarian", git: "https://github.com/clarian-finance/sdk.git", tag: "v0.4.1", glob: "ruby/*.gemspec"` |
 
 ## Instalação (TypeScript)
 
 ```bash
-npm install github:clarian-finance/sdk#v0.4.0
+npm install github:clarian-finance/sdk#v0.4.1
 ```
 
 ## Início rápido
@@ -100,7 +100,6 @@ const deposito = await clarian.cashIn.create({
     document: { number: "12345678900" },
   },
   description: "Fatura #42",
-  expiration_seconds: 3600, // padrao do servidor: 1800 (30 min), maximo 604800 (7 dias); aumente para fluxos tipo fatura
 }, "deposito-fatura-42");
 
 // Consultar um depósito
