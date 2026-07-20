@@ -112,7 +112,7 @@ const deposit = await clarian.cashIn.create({
     document: { number: "12345678900" },
   },
   description: "Invoice #42",
-  expiration_seconds: 3600,
+  expiration_seconds: 3600, // default 1800 (30 min); raise for invoice-style flows
 }, "deposit-inv-42");
 
 // Retrieve a deposit

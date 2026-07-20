@@ -55,7 +55,7 @@ Request:
     { "amount": 250.00,
       "payer": { "name": "Maria Silva", "document": { "number": "12345678900" } },
       "description": "Order #123",        // optional
-      "expiration_seconds": 3600,          // optional, default 86400
+      "expiration_seconds": 3600,          // optional, default 1800 (30 min)
       "customer_id": "<uuid>" }            // optional: credit a sub-account
 
 Response `201`:
