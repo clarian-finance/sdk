@@ -59,7 +59,7 @@ A direção é sempre `base_currency` → `quote_currency`: você paga `base_amo
 // Comprar USDT com R$ 500,00
 const cotacao = await clarian.conversions.quote({ base_currency: "BRL", quote_currency: "USDT", base_amount_minor: "50000" });
 cotacao.quote_amount_minor; // USDT que você recebe (escala 6), já sem taxas
-const resultado = await clarian.conversions.execute(cotacao.id!, "conversao-981");
+const resultado = await clarian.conversions.execute(cotacao.id!);
 ```
 
 Uma cotação converte uma vez só: repetir dá 409 `quote_not_open`, e uma vencida dá 410 `quote_expired`. Para vender USDT por real, inverta as moedas.

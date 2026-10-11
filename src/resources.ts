@@ -113,9 +113,12 @@ export class Conversions {
   quote(body: Omit<S.RfqQuoteRequest, "side">) {
     return request<S.Quote>(this.c, "POST", "rfq/quote", { body });
   }
-  /** A quote converts once; a second execute is 409 `quote_not_open`, an old one 410 `quote_expired`. */
-  execute(quoteId: string, idempotencyKey?: string) {
-    return request<S.RfqExecuteResult>(this.c, "POST", "rfq/execute", { body: { quote_id: quoteId }, idempotencyKey });
+  /**
+   * A quote converts once: a second execute is 409 `quote_not_open`, an old one 410 `quote_expired`.
+   * Not retried automatically; after a lost reply, read the payment with `transactions.list()`.
+   */
+  execute(quoteId: string) {
+    return request<S.RfqExecuteResult>(this.c, "POST", "rfq/execute", { body: { quote_id: quoteId } });
   }
   prices(symbols?: readonly string[]) {
     return request<Row>(this.c, "GET", "prices", { query: { symbols: symbols?.join(",") } });
