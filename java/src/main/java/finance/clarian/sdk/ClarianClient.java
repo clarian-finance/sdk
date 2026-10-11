@@ -181,7 +181,9 @@ public final class ClarianClient {
     }
 
     private static String seg(String id) {
-        return enc(id);
+        // Dots are encoded so "." and ".." never become path dot-segments.
+        if (id == null || id.isEmpty()) throw new IllegalArgumentException("id is required");
+        return enc(id).replace(".", "%2E");
     }
 
     private static HttpTransport defaultTransport() {

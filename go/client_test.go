@@ -187,3 +187,18 @@ func TestWebhookVerify(t *testing.T) {
 		t.Fatal("unparseable timestamp accepted")
 	}
 }
+
+func TestSegEncodesDotSegments(t *testing.T) {
+	if got := seg(".."); got != "%2E%2E" {
+		t.Fatalf("seg(..) = %q", got)
+	}
+	if got := seg("../api-keys"); got != "%2E%2E%2Fapi-keys" {
+		t.Fatalf("seg(../api-keys) = %q", got)
+	}
+}
+
+func TestFloatNestedInRowSliceRefused(t *testing.T) {
+	if _, err := normalize("", Row{"splits": []Row{{"amount_minor": 12.5}}}); err == nil {
+		t.Fatal("float inside []Row was accepted")
+	}
+}

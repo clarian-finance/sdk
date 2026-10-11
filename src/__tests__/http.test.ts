@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Clarian, ClarianError } from "../index.js";
+import { seg } from "../http.js";
 
 const KEY = "cl_test_sk_unit";
 const WS = "00000000-0000-0000-0000-000000000001";
@@ -95,5 +96,13 @@ describe("retry eligibility", () => {
     const c = new Clarian({ apiKey: KEY, workspaceId: WS, fetch: r.fetch });
     await expect(c.wallets.create({})).rejects.toThrow("unavailable");
     expect(r.calls).toHaveLength(1);
+  });
+});
+
+describe("seg", () => {
+  it("encodes dots so an id cannot become a dot-segment, and refuses an empty id", () => {
+    expect(seg("..")).toBe("%2E%2E");
+    expect(seg("../api-keys")).toBe("%2E%2E%2Fapi-keys");
+    expect(() => seg("")).toThrow("id is required");
   });
 });

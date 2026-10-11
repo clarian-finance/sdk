@@ -60,8 +60,11 @@ module Clarian
       json.is_a?(Hash) && json.key?("data") ? json["data"] : json
     end
 
+    # Dots are encoded too, so "." and ".." never become path dot-segments.
     def self.seg(id)
-      id.to_s.b.gsub(/[^A-Za-z0-9\-._~]/) { |c| format("%%%02X", c.ord) }
+      raise ArgumentError, "id is required" if id.to_s.empty?
+
+      id.to_s.b.gsub(/[^A-Za-z0-9\-_~]/) { |c| format("%%%02X", c.ord) }
     end
 
     # Amounts are integer minor units. A Float would silently lose precision, so it is refused.

@@ -6,7 +6,7 @@ PHP SDK for the Clarian API v2: PIX cash-in and cash-out, BRL/stablecoin quotes 
 
 ```bash
 composer config repositories.clarian vcs https://github.com/clarian-finance/sdk
-composer require clarian-finance/sdk-php:^2.0
+composer require clarian-finance/sdk-php:^1.0
 ```
 
 ## Quick start
@@ -82,7 +82,7 @@ $wallets = $clarian->wallets->list();
 $clarian->wallets->balance($wallets[0]['id']);
 $clarian->crypto->networks();
 // API keys send only to wallets registered in the dashboard whitelist (403 destination_not_whitelisted).
-$clarian->crypto->send(['amount_minor' => '5000000', 'currency' => 'USDT', 'network' => 'polygon', 'to_address' => '0x...'], 'send-17');
+$send = $clarian->crypto->send(['amount_minor' => '5000000', 'currency' => 'USDT', 'network' => 'polygon', 'to_address' => '0x...'], 'send-17');
 ```
 
 ## Customers, KYC and sub-accounts

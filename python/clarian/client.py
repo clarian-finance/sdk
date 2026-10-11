@@ -52,7 +52,10 @@ def _no_floats(value: Any) -> Any:
 
 
 def _seg(value: str) -> str:
-    return quote(str(value), safe="")
+    # Dots are encoded so "." and ".." never become path dot-segments.
+    if not str(value):
+        raise ValueError("id is required")
+    return quote(str(value), safe="").replace(".", "%2E")
 
 
 def _backoff(attempt: int, retry_after: Optional[str]) -> float:

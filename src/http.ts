@@ -124,4 +124,8 @@ export async function request<T>(
   return ("data" in obj ? obj.data : obj) as T;
 }
 
-export const seg = (id: string) => encodeURIComponent(id);
+// "." and ".." are dot-segments a proxy would resolve to another route: encode every dot.
+export const seg = (id: string) => {
+  if (!id) throw new Error("id is required");
+  return encodeURIComponent(id).replace(/\./g, "%2E");
+};

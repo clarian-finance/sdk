@@ -144,3 +144,12 @@ def test_webhook_stale():
 def test_webhook_unparseable_timestamp():
     ts = "not-a-date"
     assert not verify_webhook_signature(BODY, sign_webhook_payload(BODY, ts, SECRET), ts, SECRET)
+
+
+def test_seg_encodes_dot_segments_and_refuses_empty():
+    from clarian.client import _seg
+
+    assert _seg("..") == "%2E%2E"
+    assert _seg("../api-keys") == "%2E%2E%2Fapi-keys"
+    with pytest.raises(ValueError):
+        _seg("")

@@ -107,18 +107,18 @@ final class Http
         if ($body !== null) {
             $headers['Content-Type'] = 'application/json';
         }
-        if ($this->subaccountId) {
+        if ($this->subaccountId !== null && $this->subaccountId !== '') {
             $headers['X-Subaccount-Id'] = $this->subaccountId;
         }
-        if ($idempotencyKey) {
+        if ($idempotencyKey !== null && $idempotencyKey !== '') {
             $headers['Idempotency-Key'] = $idempotencyKey;
         }
-        if ($otpCode) {
+        if ($otpCode !== null && $otpCode !== '') {
             $headers['X-OTP-Code'] = $otpCode;
         }
         $json = $body === null ? null : json_encode(self::normalize($body), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
         // Only a request that cannot double-apply is retried: reads, deletes, or a create with an idempotency key.
-        $retryable = $method === 'GET' || $method === 'DELETE' || (bool) $idempotencyKey;
+        $retryable = $method === 'GET' || $method === 'DELETE' || ($idempotencyKey !== null && $idempotencyKey !== '');
         [$status, $text] = $this->sendWithRetry($method, $url, $headers, $json, $retryable ? $this->maxRetries : 0);
 
         $obj = $text === '' ? [] : json_decode($text, true, 512, JSON_BIGINT_AS_STRING);

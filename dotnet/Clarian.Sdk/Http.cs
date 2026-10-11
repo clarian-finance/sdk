@@ -28,7 +28,9 @@ internal static class Http
         : apiKey.StartsWith("cl_test_sk_", StringComparison.Ordinal) ? ClarianEnvironment.Sandbox
         : throw new ArgumentException("Invalid API key format: must start with cl_live_sk_ or cl_test_sk_", nameof(apiKey));
 
-    internal static string Seg(string id) => Uri.EscapeDataString(id);
+    // Dots are encoded so "." and ".." never become path dot-segments.
+    internal static string Seg(string id) =>
+        string.IsNullOrEmpty(id) ? throw new ArgumentException("id is required", nameof(id)) : Uri.EscapeDataString(id).Replace(".", "%2E");
 
     /// <summary>Money-moving creates: an empty key throws before any network call.</summary>
     internal static string RequireKey(string idempotencyKey) =>

@@ -181,6 +181,16 @@ func normalize(key string, v any) (any, error) {
 			out[k] = n
 		}
 		return out, nil
+	case []map[string]any:
+		out := make([]any, len(t))
+		for i, x := range t {
+			n, err := normalize(key, x)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = n
+		}
+		return out, nil
 	case []any:
 		out := make([]any, len(t))
 		for i, x := range t {
@@ -349,4 +359,6 @@ func postKeyed[T any](ctx context.Context, c *Client, path string, body any, key
 	return call[T](ctx, c, http.MethodPost, path, reqOpts{body: body, idemKey: key})
 }
 
-func seg(id string) string { return url.PathEscape(id) }
+// seg escapes one path segment; dots too, so "." and ".." never become dot-segments.
+// ponytail: an empty id is not refused here (no error path); the API answers it as a list or 404.
+func seg(id string) string { return strings.ReplaceAll(url.PathEscape(id), ".", "%2E") }
