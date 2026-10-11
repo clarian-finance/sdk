@@ -47,7 +47,7 @@ Sandbox: `POST /pix/payins/{id}/simulate`, `/pix/payouts/{id}/simulate`, `/crypt
 Each delivery: body `{id, type, created_at, data:{payment_id, kind, status, amount_minor, currency, payment_link_id}}`,
 headers `x-clarian-signature` = hex HMAC-SHA256(secret, `${x-clarian-timestamp}.${rawBody}`), `x-clarian-timestamp` (ISO-8601), `x-clarian-event`.
 Verify on the raw bytes with a constant-time compare, refuse timestamps older than 5 minutes, dedupe on `id`, answer 2xx.
-`POST /webhooks/{id}/test` sends `test.ping`. `GET /webhooks/deliveries`, `POST /webhooks/deliveries/{id}/resend`.
+`GET /webhooks/deliveries` lists attempts. Sandbox keys only: `POST /webhooks/{id}/test` (sends `test.ping`) and `POST /webhooks/deliveries/{id}/resend`.
 
 ## SDK
 

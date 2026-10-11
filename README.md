@@ -106,7 +106,7 @@ const page = await clarian.paymentLinks.payments({ limit: 50 }); // { items, nex
 ```ts
 const hook = await clarian.webhooks.create({ url: "https://example.com/clarian", events: ["payment.completed", "payment.failed"] });
 hook.secret; // shown only here: store it
-await clarian.webhooks.test(hook.id!); // sends a signed test.ping
+await clarian.webhooks.test(hook.id!); // sandbox key: sends a signed test.ping
 ```
 
 Verify every delivery on the raw body before trusting it:
@@ -123,7 +123,7 @@ if (event.type === "payment.completed") {
 }
 ```
 
-The signature is HMAC-SHA256 of `${x-clarian-timestamp}.${rawBody}`; deliveries older than 5 minutes are refused. Dedupe on `event.id` and answer 2xx fast. Failed deliveries are listed in `webhooks.deliveries()` and can be sent again with `webhooks.resend(id)`.
+The signature is HMAC-SHA256 of `${x-clarian-timestamp}.${rawBody}`; deliveries older than 5 minutes are refused. Dedupe on `event.id` and answer 2xx fast. Failed deliveries are listed in `webhooks.deliveries()`. `webhooks.test()` and `webhooks.resend(id)` work with a sandbox key only; in live, reconcile missed events with `transactions.list()`.
 
 ## Sandbox
 

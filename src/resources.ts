@@ -206,13 +206,14 @@ export class Webhooks {
   delete(id: string) {
     return request<Deleted>(this.c, "DELETE", `webhooks/${seg(id)}`);
   }
-  /** Queues a signed `test.ping` to the endpoint. */
+  /** Sandbox key only: queues a signed `test.ping` to the endpoint. */
   test(id: string) {
     return request<Row>(this.c, "POST", `webhooks/${seg(id)}/test`);
   }
   deliveries() {
     return request<S.WebhookDelivery[]>(this.c, "GET", "webhooks/deliveries");
   }
+  /** Sandbox key only. */
   resend(deliveryId: string) {
     return request<S.WebhookDelivery>(this.c, "POST", `webhooks/deliveries/${seg(deliveryId)}/resend`);
   }
