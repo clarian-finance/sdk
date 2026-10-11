@@ -1,366 +1,189 @@
 # @clarian-finance/sdk
 
-Official TypeScript SDK for the [Clarian Finance](https://clarian.finance) API.
+TypeScript SDK for the Clarian API v2: PIX cash-in and cash-out, BRL/stablecoin quotes and conversion, wallets and crypto sends, customers and KYC, payment links, sub-accounts and webhooks. Zero runtime dependencies. Node 18+, Bun, Deno and browsers with `fetch`.
 
-> **Leia em pt-BR:** [README.pt-BR.md](./README.pt-BR.md)
+[Leia em português](./README.pt-BR.md)
 
-This monorepo hosts the official Clarian SDKs for seven languages, all released together at the same version:
-
-| Language | Directory | Install |
-|----------|-----------|---------|
-| TypeScript / JavaScript | root (`src/`) | `npm install github:clarian-finance/sdk#v0.4.1` |
-| Go | [`go/`](./go/) | `go get github.com/clarian-finance/sdk/go@v0.4.1` |
-| Python | [`python/`](./python/) | `pip install "git+https://github.com/clarian-finance/sdk.git@v0.4.1#subdirectory=python"` |
-| Java | [`java/`](./java/) | clone + `gradle publishToMavenLocal` → `finance.clarian:clarian-sdk:0.4.1` ([details](./java/README.md)) |
-| C# / .NET | [`dotnet/`](./dotnet/) | clone + `dotnet pack` ([details](./dotnet/README.md)) |
-| PHP | [`php/`](./php/) | Composer path repository ([details](./php/README.md)) |
-| Ruby | [`ruby/`](./ruby/) | `gem "clarian", git: "https://github.com/clarian-finance/sdk.git", tag: "v0.4.1", glob: "ruby/*.gemspec"` |
-
-Every SDK ships the same surface: PIX cash-in/cash-out, balances, transactions, wallets, webhook subscriptions, webhook signature verification, and sandbox test helpers. Each directory has its own README with a quickstart.
-
-## Install (TypeScript)
+## Install
 
 ```bash
-npm install github:clarian-finance/sdk#v0.4.1
+npm install github:clarian-finance/sdk#v1.0.0
 ```
 
-No token required — the package builds on install. Omit `#v0.4.1` to track `main`.
+## Quick start
 
-Alternatively, via GitHub Packages (requires a GitHub token with `read:packages`):
-
-```bash
-echo "@clarian-finance:registry=https://npm.pkg.github.com" >> .npmrc
-echo "//npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN" >> .npmrc
-npm install @clarian-finance/sdk@0.4.1
-```
-
-## Quick Start
-
-```typescript
+```ts
 import { Clarian } from "@clarian-finance/sdk";
 
 const clarian = new Clarian({
-  apiKey: "cl_test_sk_your_key_here",
-  workspaceId: "your-workspace-uuid",
+  apiKey: process.env.CLARIAN_API_KEY!, // cl_test_sk_… (sandbox) or cl_live_sk_… (live)
+  workspaceId: process.env.CLARIAN_WORKSPACE_ID!,
 });
 
-// Health check
-const ping = await clarian.ping();
-console.log(ping.environment); // "production" or "sandbox"
-
-// Check balances
+await clarian.ping();
 const balances = await clarian.balances.list();
-console.log(balances);
-
-// Create a PIX cash-in (deposit) — idempotency key required
-const order = await clarian.cashIn.create({
-  amount: 100.00,
-  payer: {
-    name: "Maria Silva",
-    document: { number: "12345678900" },
-  },
-}, "deposit-001");
-console.log(order.pix.copy_paste); // PIX copy-paste code
 ```
 
-## Authentication
+The key prefix picks the environment: `cl_test_sk_` calls `/v1/test`, `cl_live_sk_` calls `/v1/live`. Create keys in the dashboard under Negócios > API (needs 2FA). Give each key only the permissions it uses.
 
-API keys follow the pattern `cl_{env}_sk_{secret}`:
+## Amounts
 
-| Prefix | Environment |
-|--------|-------------|
-| `cl_live_sk_` | Production (`/live/` routes) |
-| `cl_test_sk_` | Sandbox (`/test/` routes) |
+Every amount is an integer in minor units, sent and returned as a string. BRL has scale 2 (R$ 10,00 is `"1000"`), USDT and USDC scale 6 (1 USDT is `"1000000"`). Pass a `string`, `number` or `bigint`; never a float. Balances carry their `scale`.
 
-The SDK detects the environment from the key prefix automatically.
-
-## Resources
-
-### Ping
-
-```typescript
-const ping = await clarian.ping();
-// { ok: true, environment: "production", master_account_id: "...", scope: "master" }
+```ts
+const brl = balances.find((b) => b.currency === "BRL" && b.kind === "available");
+// brl.balance_minor = "1250050", brl.scale = 2 → R$ 12.500,50
 ```
 
-### RFQ (Quotes)
+## Cash-in (receive PIX)
 
-```typescript
-// Get a quote
-const quote = await clarian.rfq.quote({
-  base_currency: "BRL",
-  quote_currency: "USDT",
-  amount: 5000,
-  amount_currency: "BRL",
-});
-
-// Execute the quote (coming soon)
-// const result = await clarian.rfq.execute(
-//   { quote_id: quote.quote_id },
-//   "rfq-exec-001",
-// );
+```ts
+const charge = await clarian.pix.payins.create({ amount_minor: "25000", currency: "BRL" }, "order-981");
+charge.pix_qr_code; // copia-e-cola for the payer
+// later, or from the webhook:
+const paid = await clarian.pix.payins.retrieve(charge.id!);
 ```
 
-### PIX Cash-in (Deposits)
+The QR is valid for 30 minutes. The balance moves from `pending` to `available` when the PIX settles.
 
-```typescript
-// Create a deposit QR code (idempotency key required)
-const deposit = await clarian.cashIn.create({
-  amount: 50.00,
-  payer: {
-    name: "João Santos",
-    document: { number: "12345678900" },
-  },
-  description: "Invoice #42",
-}, "deposit-inv-42");
+## Cash-out (send PIX)
 
-// Retrieve a deposit
-const order = await clarian.cashIn.retrieve(deposit.id);
+```ts
+const fee = await clarian.pix.payouts.fee({ amount_minor: "10000" }); // fee_minor, debit_minor
+const payout = await clarian.pix.payouts.create(
+  { amount_minor: "10000", currency: "BRL", pix_key: "settlement@yourcompany.com" },
+  "withdrawal-2026-10-10-001",
+);
 ```
 
-### PIX Cash-out (Payouts)
+Over the API, the money goes to your workspace's registered settlement key. Register it once in the dashboard; until then the call answers 403 `settlement_key_required`. Amount plus fee leave `available` at once and return if the PIX fails.
 
-```typescript
-// DICT lookup (preview the receiver)
-const dict = await clarian.cashOut.dictCheck({
-  pix_key: "email@example.com",
-});
+## Quote and convert
 
-// Create a payout (idempotency key is required)
-const payout = await clarian.cashOut.create({
-  amount: 200.00,
-  pix_key: "email@example.com",
-  description: "Supplier payment",
-}, "unique-idempotency-key");
+The direction is always `base_currency` → `quote_currency`: you pay `base_amount_minor` of the base and receive the quote currency.
 
-// Retrieve a payout
-const order = await clarian.cashOut.retrieve(payout.id);
+```ts
+// Buy USDT with R$ 500,00
+const quote = await clarian.conversions.quote({ base_currency: "BRL", quote_currency: "USDT", base_amount_minor: "50000" });
+quote.quote_amount_minor; // USDT you receive (scale 6), after fees
+quote.expires_at;         // execute before this
+
+const result = await clarian.conversions.execute(quote.id!, "convert-981");
+result.ledger?.to_minor;  // settled amount; absent while result.status === "processing"
 ```
 
-### Wallets
+A quote converts once: a second execute is 409 `quote_not_open`, an expired one 410 `quote_expired`. To sell USDT for BRL, swap the currencies.
 
-```typescript
-// List all wallets
+## Wallets and crypto
+
+```ts
 const wallets = await clarian.wallets.list();
-
-// Filter by network
-const tronWallets = await clarian.wallets.list("tron");
-
-// Get live on-chain balance
-const balance = await clarian.wallets.retrieveBalance(wallets[0].id);
+await clarian.wallets.balance(wallets[0].id!);
+await clarian.crypto.networks();
+await clarian.crypto.send({ amount_minor: "5000000", currency: "USDT", network: "polygon", to_address: "0x…" }, "send-17");
 ```
 
-### Transactions
+## Customers, KYC and sub-accounts
 
-```typescript
-// List recent transactions
-const { transactions } = await clarian.transactions.list({ limit: 20 });
+```ts
+const customer = await clarian.customers.create({ kind: "person", display_name: "Maria Silva", document_type: "cpf", document_number: "52998224725" });
+await clarian.kyc.create({ party_id: customer.id! });
 
-// Filter by type
-const deposits = await clarian.transactions.list({ type: "pix_in" });
-
-// Retrieve one transaction
-const tx = await clarian.transactions.retrieve("tx-uuid");
+const sub = await clarian.subaccounts.create({ display_name: "Store 12" });
+const store = clarian.forSubaccount(sub.id!); // every call acts on that sub-account
+await store.pix.payins.create({ amount_minor: "1000" }, "store12-order-1");
 ```
 
-### Balances
+## Payment links
 
-```typescript
-const balances = await clarian.balances.list();
-// [{ currency: "BRL", available: 1500.00, pending: 200.00, locked: 0 }]
+```ts
+const link = await clarian.paymentLinks.create({ amount_minor: "4990", currency: "BRL", description: "Plano mensal" });
+const page = await clarian.paymentLinks.payments({ limit: 50 }); // { items, next_cursor }
 ```
 
-### Webhooks
+## Webhooks
 
-```typescript
-// Create a webhook subscription
-const { subscription, secret } = await clarian.webhooks.create({
-  url: "https://yourapp.com/webhooks/clarian",
-  events: [
-    "pix_payin.completed",
-    "subscription.invoice.paid",
-    "subscription.activated",
-  ],
-  description: "Main webhook",
-});
-// Save `secret` securely - shown only once
-
-// List subscriptions
-const subs = await clarian.webhooks.list();
-
-// Update
-await clarian.webhooks.update(subscription.id, { is_active: false });
-
-// Delete
-await clarian.webhooks.delete(subscription.id);
+```ts
+const hook = await clarian.webhooks.create({ url: "https://example.com/clarian", events: ["payment.completed", "payment.failed"] });
+hook.secret; // shown only here: store it
+await clarian.webhooks.test(hook.id!); // sends a signed test.ping
 ```
 
-### Products & Subscriptions (v0.2)
+Verify every delivery on the raw body before trusting it:
 
-Requires the product to be enabled for the workspace in Clarian backoffice
-(`pix_recurring` for PIX subscriptions; `card_payment` / `card_recurring` for card).
+```ts
+import { constructWebhookEvent } from "@clarian-finance/sdk";
 
-```typescript
-// Create a monthly plan (product with cycle)
-const plan = await clarian.products.create({
-  external_id: "vizu-pro-monthly",
-  name: "Vizu Pro",
-  price_cents: 9900,
-  cycle: "monthly",
-});
+// Express: app.post("/clarian", express.raw({ type: "application/json" }), handler)
+const event = await constructWebhookEvent(req.body.toString("utf8"), req.headers, process.env.CLARIAN_WEBHOOK_SECRET!);
+// Fetch / Next.js / Bun: await constructWebhookEvent(await request.text(), request.headers, secret)
 
-// Create a PIX subscription — first invoice + QR returned inline
-const { subscription, invoice } = await clarian.subscriptions.create({
-  product_id: plan.id,
-  payment_method: "pix",
-  payer: { name: "Cliente", document: "12345678900", email: "c@example.com" },
-}, "sub-create-001");
-
-console.log(invoice.pix?.emv); // deliver QR / copy-paste to the payer
-
-// List invoices, cancel, change plan
-const invoices = await clarian.subscriptions.listInvoices(subscription.id);
-await clarian.subscriptions.changePlan(subscription.id, { productId: plan.id });
-await clarian.subscriptions.cancel(subscription.id, { at_period_end: true });
-
-// Card charges (returns card_rail_not_ready until GOWD acquiring ships)
-// await clarian.cards.charge({ amount_cents: 5000, card_token_id: "..." }, "chg-001");
-```
-
-### Sandbox testing
-
-Sandbox-only helpers (`cl_test_sk_` keys). Outside sandbox they throw before any network call.
-
-Magic PIX keys for the sandbox payout rail:
-
-| Key | Behavior |
-|-----|----------|
-| `fail@sandbox.clarian` | Payout fails and funds are refunded |
-| `pending@sandbox.clarian` | Payout stays pending until you simulate it |
-
-```typescript
-import {
-  Clarian,
-  SANDBOX_FAIL_PIX_KEY,
-  SANDBOX_PENDING_PIX_KEY,
-  signWebhookPayload,
-} from "@clarian-finance/sdk";
-
-const clarian = new Clarian({
-  apiKey: "cl_test_sk_your_key_here",
-  workspaceId: "your-workspace-uuid",
-});
-
-// Simulate a payin settling (default status: completed)
-const paid = await clarian.sandbox.simulateCashIn(deposit.id);
-// Or: "expired" | "failed"
-await clarian.sandbox.simulateCashIn(deposit.id, "expired");
-
-// Create a payout that stays pending, then complete it
-const pendingPayout = await clarian.cashOut.create(
-  { amount: 10, pix_key: SANDBOX_PENDING_PIX_KEY },
-  "payout-sim-001",
-);
-const settled = await clarian.sandbox.simulateCashOut(pendingPayout.id, "completed");
-
-// Force a failed payout
-await clarian.cashOut.create(
-  { amount: 10, pix_key: SANDBOX_FAIL_PIX_KEY },
-  "payout-fail-001",
-);
-
-// Enqueue a sample webhook to a subscription
-const { enqueued, delivery_id } = await clarian.sandbox.sendWebhookEvent(
-  subscription.id,
-  "pix_payin.completed",
-);
-
-// Re-queue a previous delivery
-const { deliveryId } = await clarian.sandbox.resendWebhookDelivery(delivery_id!);
-
-// Sign a payload locally to unit-test your webhook handler
-const timestamp = new Date().toISOString();
-const body = JSON.stringify({ amount: 100, status: "completed" });
-const signature = await signWebhookPayload(body, timestamp, webhookSecret);
-```
-
-## Webhook Verification
-
-Verify incoming webhook signatures to ensure authenticity:
-
-```typescript
-import {
-  constructWebhookEvent,
-  extractWebhookHeaders,
-} from "@clarian-finance/sdk";
-
-// Express / Node.js example
-app.post("/webhooks/clarian", async (req, res) => {
-  const headers = extractWebhookHeaders(req.headers);
-  const rawBody = req.body; // must be the raw string, not parsed JSON
-
-  try {
-    const event = await constructWebhookEvent(rawBody, headers, WEBHOOK_SECRET);
-    console.log(`Received ${event.event}`, event.data);
-    res.sendStatus(200);
-  } catch (err) {
-    console.error("Webhook verification failed:", err);
-    res.sendStatus(401);
-  }
-});
-```
-
-### Signature Format
-
-| Header | Description |
-|--------|-------------|
-| `X-Clarian-Signature` | HMAC-SHA256 hex of `{timestamp}.{body}` |
-| `X-Clarian-Timestamp` | ISO 8601 delivery timestamp |
-| `X-Clarian-Event` | Event type (e.g. `pix_payin.completed`) |
-| `X-Clarian-Delivery-Id` | Unique delivery UUID |
-| `X-Clarian-Idempotency-Key` | Idempotency key for dedup |
-| `X-Clarian-Attempt` | Delivery attempt number |
-
-## Error Handling
-
-```typescript
-import { Clarian, ClarianError } from "@clarian-finance/sdk";
-
-try {
-  await clarian.cashOut.create({ amount: 100, pix_key: "..." }, "key-1");
-} catch (err) {
-  if (err instanceof ClarianError) {
-    console.error(err.status);  // 400, 401, 403, 429...
-    console.error(err.code);    // "invalid_amount", "rate_limited"...
-    console.error(err.detail);  // human-readable detail
-  }
+if (event.type === "payment.completed") {
+  const { payment_id, kind, amount_minor, currency } = event.data;
 }
 ```
 
-## cURL Examples
+The signature is HMAC-SHA256 of `${x-clarian-timestamp}.${rawBody}`; deliveries older than 5 minutes are refused. Dedupe on `event.id` and answer 2xx fast. Failed deliveries are listed in `webhooks.deliveries()` and can be sent again with `webhooks.resend(id)`.
 
-```bash
-# Ping (auth check)
-curl -X GET \
-  "https://api.clarian.finance/functions/v1/api-gateway/test/ping" \
-  -H "Authorization: Bearer cl_test_sk_YOUR_KEY" \
-  -H "X-Workspace-Id: YOUR_WORKSPACE_ID"
+## Sandbox
 
-# Create a PIX cash-in
-curl -X POST \
-  "https://api.clarian.finance/functions/v1/api-gateway/test/pix/payins" \
-  -H "Authorization: Bearer cl_test_sk_YOUR_KEY" \
-  -H "X-Workspace-Id: YOUR_WORKSPACE_ID" \
-  -H "Content-Type: application/json" \
-  -d '{"amount": 10, "payer": {"name": "Test", "document": {"number": "12345678900"}}}'
+With a `cl_test_sk_` key nothing reaches a bank or chain. Settle or fail anything pending:
 
-# List balances
-curl -X GET \
-  "https://api.clarian.finance/functions/v1/api-gateway/test/account/balances" \
-  -H "Authorization: Bearer cl_test_sk_YOUR_KEY" \
-  -H "X-Workspace-Id: YOUR_WORKSPACE_ID"
+```ts
+await clarian.pix.payins.simulate(charge.id!);                       // completed
+await clarian.pix.payouts.simulate(payout.id!, { status: "failed", reason: "test" });
+await clarian.crypto.simulate(send.id!);
 ```
 
-## License
+## Errors, retries and idempotency
 
-MIT
+Non-2xx replies throw `ClarianError` with `status` and the API's stable `code`:
+
+```ts
+import { ClarianError } from "@clarian-finance/sdk";
+
+try {
+  await clarian.pix.payouts.create({ amount_minor: "10000", pix_key: "x" }, "w-1");
+} catch (e) {
+  if (e instanceof ClarianError && e.code === "insufficient_balance") { /* … */ }
+}
+```
+
+Money-moving creates require an idempotency key: retrying with the same key returns the same payment and never pays twice. The SDK retries 429/502/503/504 and network errors up to `maxRetries` (default 2), but only reads, deletes and calls that carry an idempotency key. The API allows 120 requests per minute per key.
+
+## Not on the API
+
+Actions that need a person's own second factor stay in the dashboard: inviting or changing team members, voting on approvals, creating or rotating API keys, saving payout accounts and whitelist entries, and changing workspace settings. Their read endpoints are in the SDK.
+
+## Reference
+
+| Area | Methods |
+|---|---|
+| `balances` | `list` |
+| `pix.payins` | `create`, `retrieve`, `simulate` |
+| `pix.payouts` | `create`, `retrieve`, `fee`, `lookup`, `simulate`, `listAccounts` |
+| `conversions` | `quote`, `execute`, `prices` |
+| `wallets` | `list`, `create`, `retrieve`, `balance`, `transactions` |
+| `crypto` | `send`, `simulate`, `networks` |
+| `transactions` | `list`, `retrieve`, `statement` |
+| `customers` | `list`, `create`, `retrieve`, `update` |
+| `kyc` | `list`, `create`, `retrieve`, `listRfi`, `answerRfi` |
+| `webhooks` | `list`, `create`, `retrieve`, `update`, `delete`, `test`, `deliveries`, `resend` |
+| `paymentLinks` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replaceSplits`, `charge` |
+| `checkout` | `retrieve`, `pay` |
+| `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions` |
+| `whitelist`, `bankAccounts`, `apiKeys`, `settings`, `notifications`, `team`, `approvals` | read |
+| `workflows`, `treasury` | `list`, `create` (+ `workflows.runs`) |
+
+Request and response types are generated from the OpenAPI reference (`openapi.json`, also at `https://app.clarian.finance/openapi.json`).
+
+## Development
+
+```bash
+npm install
+npm run gen     # src/schema.ts from openapi.json
+npm run lint
+npm test
+npm run build
+CLARIAN_API_KEY=cl_test_sk_… CLARIAN_WORKSPACE_ID=… CLARIAN_BASE_URL=http://localhost:3000 npm run e2e
+```
