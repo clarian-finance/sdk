@@ -3,7 +3,7 @@
   "info": {
     "title": "Clarian API",
     "version": "2.0.0",
-    "description": "Customer-facing API for the Clarian B2B crypto/PIX platform. Every route below lives under /v1/{env}/ and is reached with an API key (or, for a handful of owner/admin dashboard actions, a Better Auth session). Wallets, PIX on/off-ramp, OTC/RFQ, KYC, webhooks, payment links and multi-tenant wallet-as-a-service sub-accounts."
+    "description": "Customer-facing API for the Clarian B2B crypto/PIX platform. Every route below lives under /v1/{env}/ and is reached with an API key (or, for a handful of owner/admin dashboard actions, a Better Auth session). Wallets, PIX on/off-ramp, OTC/RFQ, KYC, webhooks, payment links and multi-tenant wallet-as-a-service sub-accounts. Rate limit: 120 requests per minute per API key (fixed one-minute window); over it the reply is 429 `rate_limited`, retry after the window resets. Amounts are integer minor units as strings: BRL scale 2 (R$ 10,00 = \"1000\"), USDT/USDC scale 6."
   },
   "servers": [
     {
@@ -7356,7 +7356,7 @@
           "Webhooks"
         ],
         "summary": "payment.completed",
-        "description": "Sent when a PIX payin/payout, crypto send, or RFQ settlement reaches status completed. Signed with HMAC-SHA256: the endpoint's secret signs the string `${x-clarian-timestamp}.${raw request body}`; the hex digest is sent as `x-clarian-signature`. Verify by recomputing the HMAC over the exact bytes received and comparing with a constant-time check. `x-clarian-timestamp` is the event's `created_at` (ISO-8601); `x-clarian-event` repeats the event type. The JSON body is `{id, type, created_at, data}`, where `data` is the payload below. Delivery retries on a non-2xx response.",
+        "description": "Sent when a PIX payin/payout, crypto send, or RFQ settlement reaches status completed. Signed with HMAC-SHA256: the endpoint's secret signs the string `${x-clarian-timestamp}.${raw request body}`; the hex digest is sent as `x-clarian-signature`. Verify by recomputing the HMAC over the exact bytes received and comparing with a constant-time check. `x-clarian-timestamp` is the send time of this attempt (ISO-8601), so a retry carries a fresh one; the body's `created_at` stays the event time; `x-clarian-event` repeats the event type. The JSON body is `{id, type, created_at, data}`, where `data` is the payload below. Delivery retries on a non-2xx response.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -7432,7 +7432,7 @@
           "Webhooks"
         ],
         "summary": "payment.failed",
-        "description": "Sent when a payment reaches status failed. Signed with HMAC-SHA256: the endpoint's secret signs the string `${x-clarian-timestamp}.${raw request body}`; the hex digest is sent as `x-clarian-signature`. Verify by recomputing the HMAC over the exact bytes received and comparing with a constant-time check. `x-clarian-timestamp` is the event's `created_at` (ISO-8601); `x-clarian-event` repeats the event type. The JSON body is `{id, type, created_at, data}`, where `data` is the payload below. Delivery retries on a non-2xx response.",
+        "description": "Sent when a payment reaches status failed. Signed with HMAC-SHA256: the endpoint's secret signs the string `${x-clarian-timestamp}.${raw request body}`; the hex digest is sent as `x-clarian-signature`. Verify by recomputing the HMAC over the exact bytes received and comparing with a constant-time check. `x-clarian-timestamp` is the send time of this attempt (ISO-8601), so a retry carries a fresh one; the body's `created_at` stays the event time; `x-clarian-event` repeats the event type. The JSON body is `{id, type, created_at, data}`, where `data` is the payload below. Delivery retries on a non-2xx response.",
         "requestBody": {
           "content": {
             "application/json": {
