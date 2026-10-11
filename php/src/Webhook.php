@@ -17,6 +17,10 @@ final class Webhook
 
     public static function verifySignature(string $body, string $signature, string $timestamp, string $secret, int $toleranceSeconds = self::DEFAULT_TOLERANCE_SECONDS): bool
     {
+        // An empty secret makes the HMAC forgeable by anyone: refuse it outright.
+        if ($secret === '') {
+            throw new \InvalidArgumentException('webhook secret is required');
+        }
         // An unparseable timestamp fails closed.
         $sentAt = self::parseIso8601($timestamp);
         if ($sentAt === null || abs(microtime(true) - $sentAt) > $toleranceSeconds) {

@@ -59,4 +59,11 @@ final class WebhookTest extends TestCase
             $this->assertFalse(Webhook::verifySignature(self::BODY, Webhook::sign(self::BODY, $ts, self::SECRET), $ts, self::SECRET), $ts);
         }
     }
+
+    public function testEmptySecretRefused(): void
+    {
+        $ts = gmdate('Y-m-d\TH:i:s\Z');
+        $this->expectException(\InvalidArgumentException::class);
+        Webhook::constructEvent(self::BODY, self::headers($ts), '');
+    }
 }

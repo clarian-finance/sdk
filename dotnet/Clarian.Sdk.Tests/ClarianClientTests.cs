@@ -13,7 +13,7 @@ public class ClarianClientTests
         var handler = new FakeHttpMessageHandler(responder);
         var client = new ClarianClient(new ClarianOptions
         {
-            ApiKey = key, WorkspaceId = Ws, BaseUrl = "http://api.local/", HttpClient = new HttpClient(handler),
+            ApiKey = key, WorkspaceId = Ws, BaseUrl = "https://api.local/", HttpClient = new HttpClient(handler),
         });
         return (client, handler);
     }
@@ -33,7 +33,7 @@ public class ClarianClientTests
         var (c, h) = Make(_ => Ok());
         await c.Transactions.ListAsync(limit: 5, before: "p_9");
         Assert.Equal("GET", h.Last.Method);
-        Assert.Equal("http://api.local/v1/test/transactions?limit=5&before=p_9", h.Last.Uri.ToString());
+        Assert.Equal("https://api.local/v1/test/transactions?limit=5&before=p_9", h.Last.Uri.ToString());
         Assert.Equal("Bearer cl_test_sk_abc", h.Last.Headers["Authorization"]);
         Assert.Equal(Ws, h.Last.Headers["X-Workspace-Id"]);
         Assert.False(h.Last.Headers.ContainsKey("X-Subaccount-Id"));
@@ -167,5 +167,46 @@ public class ClarianClientTests
         await Assert.ThrowsAsync<ArgumentException>(() => c.PaymentLinks.ChargeAsync("l", new { }, ""));
         await Assert.ThrowsAsync<ArgumentException>(() => c.Checkout.PayAsync("s", new { }, ""));
         Assert.Empty(h.Requests);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(".")]
+    [InlineData("..")]
+    public async Task DotAndEmptyIdsRefused(string id)
+    {
+        var (c, h) = Make(_ => Ok());
+        await Assert.ThrowsAsync<ArgumentException>(() => c.Wallets.RetrieveAsync(id));
+        Assert.Empty(h.Requests);
+    }
+
+    [Fact]
+    public void BlankSubaccountRefused()
+    {
+        var (c, _) = Make(_ => Ok());
+        Assert.Throws<ArgumentException>(() => c.ForSubaccount(" "));
+        Assert.Throws<ArgumentException>(() => new ClarianClient(new ClarianOptions { ApiKey = "cl_test_sk_x", WorkspaceId = Ws, SubaccountId = "" }));
+    }
+
+    [Theory]
+    [InlineData("http://api.example.com", false)]
+    [InlineData("http://localhost.evil.com", false)]
+    [InlineData("ftp://x", false)]
+    [InlineData("https://api.example.com", true)]
+    [InlineData("http://localhost:3000", true)]
+    [InlineData("http://127.0.0.1", true)]
+    [InlineData("http://host.docker.internal:8080", true)]
+    public void BaseUrlMustBeHttps(string url, bool ok)
+    {
+        var make = () => new ClarianClient(new ClarianOptions { ApiKey = "cl_test_sk_x", WorkspaceId = Ws, BaseUrl = url });
+        if (ok) make(); else Assert.Throws<ArgumentException>(make);
+    }
+
+    [Fact]
+    public void ToStringMasksKey()
+    {
+        var o = new ClarianOptions { ApiKey = "cl_test_sk_secret", WorkspaceId = Ws };
+        var c = new ClarianClient(o).ForSubaccount("sub");
+        Assert.DoesNotContain("cl_test_sk_secret", o.ToString() + c.ToString());
     }
 }

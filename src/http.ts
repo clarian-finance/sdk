@@ -21,6 +21,16 @@ export function resolveEnvironment(apiKey: string): Environment {
   throw new Error("Invalid API key format: must start with cl_live_sk_ or cl_test_sk_");
 }
 
+// Plain http only for local testing: anything else would send the API key in clear text.
+const LOCAL_HTTP = /^http:\/\/(localhost|127\.0\.0\.1|host\.docker\.internal)(:\d+)?(\/|$)/i;
+
+export function checkBaseUrl(baseUrl: string): string {
+  if (!/^https:\/\/[^/]/i.test(baseUrl) && !LOCAL_HTTP.test(baseUrl)) {
+    throw new Error("baseUrl must be https (http is allowed only for localhost, 127.0.0.1 and host.docker.internal)");
+  }
+  return baseUrl.replace(/\/+$/, "");
+}
+
 export function createHttpConfig(opts: {
   apiKey: string;
   workspaceId: string;
@@ -30,16 +40,17 @@ export function createHttpConfig(opts: {
   fetch?: typeof fetch;
   maxRetries?: number;
 }): HttpClientConfig {
-  return {
-    apiKey: opts.apiKey,
+  const config = {
     workspaceId: opts.workspaceId,
-    baseUrl: (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, ""),
+    baseUrl: checkBaseUrl(opts.baseUrl ?? DEFAULT_BASE_URL),
     timeout: opts.timeout ?? DEFAULT_TIMEOUT,
     environment: resolveEnvironment(opts.apiKey),
     subaccountId: opts.subaccountId,
     fetch: opts.fetch ?? globalThis.fetch.bind(globalThis),
     maxRetries: opts.maxRetries ?? 2,
   };
+  // Non-enumerable: console.log, util.inspect and JSON.stringify of a client never print the key.
+  return Object.defineProperty(config, "apiKey", { value: opts.apiKey, enumerable: false }) as HttpClientConfig;
 }
 
 // An object of string/number fields; undefined fields are dropped.
@@ -124,8 +135,9 @@ export async function request<T>(
   return ("data" in obj ? obj.data : obj) as T;
 }
 
-// "." and ".." are dot-segments a proxy would resolve to another route: encode every dot.
+// "." and ".." are dot-segments a URL parser resolves to another route, even when encoded: refuse them.
 export const seg = (id: string) => {
   if (!id) throw new Error("id is required");
+  if (id === "." || id === "..") throw new Error(`invalid id: ${id}`);
   return encodeURIComponent(id).replace(/\./g, "%2E");
 };

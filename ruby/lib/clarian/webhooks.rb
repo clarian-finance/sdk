@@ -17,6 +17,9 @@ module Clarian
     end
 
     def verify_signature(body, signature, timestamp, secret, tolerance: DEFAULT_TOLERANCE)
+      # An empty secret makes the HMAC forgeable by anyone: refuse it outright.
+      raise ArgumentError, "webhook secret is required" if secret.nil? || secret.to_s.empty?
+
       # An unparseable timestamp fails closed.
       sent_at = begin
         Time.iso8601(timestamp.to_s)

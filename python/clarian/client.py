@@ -8,7 +8,7 @@ import time
 import urllib.error
 import urllib.request
 from typing import Any, Callable, Mapping, Optional, Sequence, Tuple
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 from .errors import ClarianError
 
@@ -21,10 +21,19 @@ Transport = Callable[[str, str, Mapping[str, str], Optional[bytes], float], Tupl
 Body = Mapping[str, Any]
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    # urllib copies the Authorization header onto the redirect target: never follow one, return the 3xx instead.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
 def _urllib_transport(method: str, url: str, headers: Mapping[str, str], body: Optional[bytes], timeout: float):
     req = urllib.request.Request(url, data=body, headers=dict(headers), method=method)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _opener.open(req, timeout=timeout) as resp:
             return resp.status, dict(resp.headers), resp.read()
     except urllib.error.HTTPError as e:
         return e.code, dict(e.headers or {}), e.read()
@@ -51,10 +60,21 @@ def _no_floats(value: Any) -> Any:
     return value
 
 
+_LOCAL_HTTP = frozenset({"localhost", "127.0.0.1", "host.docker.internal"})
+
+
+def _check_base_url(base_url: str) -> str:
+    # Plain http would send the API key in clear text: only local origins may use it, for testing.
+    parts = urlsplit(base_url)
+    if not parts.hostname or not (parts.scheme == "https" or (parts.scheme == "http" and parts.hostname in _LOCAL_HTTP)):
+        raise ValueError("base_url must be https (http only for localhost, 127.0.0.1, host.docker.internal)")
+    return base_url.rstrip("/")
+
+
 def _seg(value: str) -> str:
-    # Dots are encoded so "." and ".." never become path dot-segments.
-    if not str(value):
-        raise ValueError("id is required")
+    # URL parsers resolve "." and ".." (even encoded) to another route: refuse them.
+    if str(value) in ("", ".", ".."):
+        raise ValueError("id must not be empty, '.' or '..'")
     return quote(str(value), safe="").replace(".", "%2E")
 
 
@@ -80,13 +100,16 @@ class _Http:
                  sleep: Callable[[float], None]) -> None:
         self.api_key = api_key
         self.workspace_id = workspace_id
-        self.base_url = (base_url or DEFAULT_BASE_URL).rstrip("/")
+        self.base_url = _check_base_url(base_url or DEFAULT_BASE_URL)
         self.timeout = timeout
         self.environment = resolve_environment(api_key)
         self.subaccount_id = subaccount_id
         self.max_retries = max_retries
         self.transport = transport or _urllib_transport
         self.sleep = sleep
+
+    def __repr__(self) -> str:
+        return f"<clarian._Http {self.environment} workspace={self.workspace_id} api_key=****>"
 
     def request(self, method: str, path: str, *, query: Optional[Mapping[str, Any]] = None, body: Any = None,
                 idempotency_key: Optional[str] = None, otp_code: Optional[str] = None) -> Any:
@@ -448,6 +471,8 @@ class Clarian:
             raise ValueError("api_key is required")
         if not workspace_id:
             raise ValueError("workspace_id is required")
+        if subaccount_id is not None and not subaccount_id.strip():
+            raise ValueError("subaccount_id must not be blank")
         self._opts = dict(api_key=api_key, workspace_id=workspace_id, base_url=base_url, timeout=timeout,
                           subaccount_id=subaccount_id, max_retries=max_retries, transport=transport, sleep=sleep)
         h = _Http(**self._opts)
@@ -481,4 +506,10 @@ class Clarian:
 
     def for_subaccount(self, subaccount_id: str) -> "Clarian":
         """A client that acts on one child workspace (sends ``X-Subaccount-Id``)."""
+        # A blank id would drop the header and silently act on the parent workspace.
+        if not (subaccount_id or "").strip():
+            raise ValueError("subaccount_id is required")
         return Clarian(**{**self._opts, "subaccount_id": subaccount_id})
+
+    def __repr__(self) -> str:
+        return f"<Clarian {self.environment} workspace={self._opts['workspace_id']} api_key=****>"

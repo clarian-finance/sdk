@@ -38,4 +38,11 @@ class WebhooksTest {
         }
         assertThrows(IllegalArgumentException.class, () -> Webhooks.constructEvent(BODY, Map.of(), SECRET));
     }
+
+    @Test void emptySecretRefused() {
+        String ts = Instant.now().toString();
+        assertThrows(IllegalArgumentException.class, () -> Webhooks.verifySignature(BODY, "00", ts, ""));
+        assertThrows(IllegalArgumentException.class, () -> Webhooks.verifySignature(BODY, "00", ts, null));
+        assertThrows(IllegalArgumentException.class, () -> Webhooks.constructEvent(BODY, Map.of("x-clarian-signature", "00", "x-clarian-timestamp", ts), ""));
+    }
 }

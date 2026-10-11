@@ -63,13 +63,37 @@ public final class ClarianClient {
         if (b.apiKey.startsWith("cl_live_sk_")) environment = Environment.LIVE;
         else if (b.apiKey.startsWith("cl_test_sk_")) environment = Environment.SANDBOX;
         else throw new IllegalArgumentException("Invalid API key format: must start with cl_live_sk_ or cl_test_sk_");
+        if (b.subaccountId != null && b.subaccountId.isBlank()) throw new IllegalArgumentException("subaccountId must not be blank");
         this.cfg = b.copy();
-        this.cfg.baseUrl = cfg.baseUrl.replaceAll("/+$", "");
+        this.cfg.baseUrl = checkBaseUrl(cfg.baseUrl);
         if (cfg.transport == null) cfg.transport = defaultTransport();
     }
 
     public static Builder builder() {
         return new Builder();
+    }
+
+    private static final Set<String> LOCAL_HTTP = Set.of("localhost", "127.0.0.1", "host.docker.internal");
+
+    // Plain http would send the API key in clear text: only local origins may use it, for testing.
+    private static String checkBaseUrl(String baseUrl) {
+        URI u;
+        try {
+            u = new URI(baseUrl);
+        } catch (java.net.URISyntaxException e) {
+            throw new IllegalArgumentException("invalid baseUrl: " + baseUrl);
+        }
+        String host = u.getHost() == null ? "" : u.getHost().toLowerCase(Locale.ROOT);
+        boolean ok = !host.isEmpty() && ("https".equalsIgnoreCase(u.getScheme())
+                || ("http".equalsIgnoreCase(u.getScheme()) && LOCAL_HTTP.contains(host)));
+        if (!ok) throw new IllegalArgumentException("baseUrl must be https (http only for localhost, 127.0.0.1, host.docker.internal)");
+        return baseUrl.replaceAll("/+$", "");
+    }
+
+    /** Never prints the API key. */
+    @Override
+    public String toString() {
+        return "ClarianClient{environment=" + environment + ", workspaceId=" + cfg.workspaceId + ", subaccountId=" + cfg.subaccountId + ", apiKey=****}";
     }
 
     /** Checks the key and workspace. */
@@ -79,6 +103,8 @@ public final class ClarianClient {
 
     /** A client that acts on one child workspace (sends {@code X-Subaccount-Id}). */
     public ClarianClient forSubaccount(String subaccountId) {
+        // A blank id would drop the header and silently act on the parent workspace.
+        if (subaccountId == null || subaccountId.isBlank()) throw new IllegalArgumentException("subaccountId is required");
         Builder b = cfg.copy();
         b.subaccountId = subaccountId;
         return new ClarianClient(b);
@@ -181,8 +207,8 @@ public final class ClarianClient {
     }
 
     private static String seg(String id) {
-        // Dots are encoded so "." and ".." never become path dot-segments.
-        if (id == null || id.isEmpty()) throw new IllegalArgumentException("id is required");
+        // URL parsers resolve "." and ".." (even encoded) to another route: refuse them.
+        if (id == null || id.isEmpty() || id.equals(".") || id.equals("..")) throw new IllegalArgumentException("id must not be empty, \".\" or \"..\"");
         return enc(id).replace(".", "%2E");
     }
 
@@ -444,6 +470,8 @@ public final class ClarianClient {
         public Builder transport(HttpTransport v) { transport = v; return this; }
 
         public ClarianClient build() { return new ClarianClient(this); }
+
+        @Override public String toString() { return "ClarianClient.Builder{workspaceId=" + workspaceId + ", apiKey=****}"; }
 
         private Builder copy() {
             Builder b = new Builder();

@@ -42,11 +42,11 @@ class TestClient < Minitest::Test
   end
 
   def test_request_building_and_unwrap
-    c = client([200, { "data" => [{ "id" => "p1" }] }], base_url: "http://x/")
+    c = client([200, { "data" => [{ "id" => "p1" }] }], base_url: "https://x/")
     assert_equal [{ "id" => "p1" }], c.transactions.list(limit: 5, before: "a b")
     call = @t.calls.last
     assert_equal "GET", call[:method]
-    assert_equal "http://x/v1/test/transactions?limit=5&before=a+b", call[:url]
+    assert_equal "https://x/v1/test/transactions?limit=5&before=a+b", call[:url]
     assert_equal "Bearer #{KEY}", call[:headers]["Authorization"]
     assert_equal WS, call[:headers]["X-Workspace-Id"]
     refute call[:headers].key?("Idempotency-Key")
@@ -141,6 +141,34 @@ class TestClient < Minitest::Test
     assert_equal({ "id" => "p" }, c.pix.payouts.create({ amount_minor: "1000" }, "k"))
     assert_equal 2, @t.calls.size
   end
+
+  def test_dot_and_empty_ids_refused
+    c = client([200, { "data" => {} }])
+    ["", ".", ".."].each { |id| assert_raises(ArgumentError) { c.wallets.retrieve(id) } }
+    assert_empty @t.calls
+  end
+
+  def test_blank_subaccount_refused
+    assert_raises(ArgumentError) { client([200, {}]).for_subaccount(" ") }
+    assert_raises(ArgumentError) { client([200, {}]).for_subaccount(nil) }
+    assert_raises(ArgumentError) { client([200, {}], subaccount_id: "") }
+  end
+
+  def test_base_url_must_be_https
+    %w[http://api.example.com http://localhost.evil.com ftp://x].each do |u|
+      assert_raises(ArgumentError, u) { client([200, {}], base_url: u) }
+    end
+    %w[https://api.example.com http://localhost:3000 http://127.0.0.1 http://host.docker.internal:8080].each do |u|
+      client([200, {}], base_url: u)
+    end
+  end
+
+  def test_inspect_masks_key
+    c = client([200, {}])
+    refute_includes c.inspect, KEY
+    refute_includes c.for_subaccount("s").inspect, KEY
+    refute_includes c.wallets.inspect, KEY
+  end
 end
 
 class TestWebhook < Minitest::Test
@@ -179,5 +207,11 @@ class TestWebhook < Minitest::Test
     %w[not-a-date 1728600000].push("").each do |ts|
       refute Clarian::Webhook.verify_signature(BODY, Clarian::Webhook.sign_payload(BODY, ts, SECRET), ts, SECRET)
     end
+  end
+
+  def test_empty_secret_refused
+    ts = Time.now.utc.iso8601
+    assert_raises(ArgumentError) { Clarian::Webhook.construct_event(BODY, headers(ts), "") }
+    assert_raises(ArgumentError) { Clarian::Webhook.verify_signature(BODY, "00", ts, nil) }
   end
 end

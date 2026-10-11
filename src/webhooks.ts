@@ -25,6 +25,8 @@ export async function verifyWebhookSignature(
   secret: string,
   toleranceMs = DEFAULT_TOLERANCE_MS,
 ): Promise<boolean> {
+  // An empty secret makes the HMAC forgeable by anyone: refuse it outright.
+  if (!secret) throw new Error("webhook secret is required");
   const sentAt = new Date(timestamp).getTime();
   // An unparseable timestamp fails closed: NaN would slip past the age check.
   if (!Number.isFinite(sentAt) || Math.abs(Date.now() - sentAt) > toleranceMs) return false;

@@ -74,8 +74,30 @@ final class Http
         ?callable $sleep = null,
     ) {
         $this->environment = self::resolveEnvironment($apiKey);
+        self::checkBaseUrl($baseUrl);
+        if ($subaccountId !== null && trim($subaccountId) === '') {
+            // A blank id would drop the header and silently act on the parent workspace.
+            throw new \InvalidArgumentException('subaccountId must not be blank');
+        }
         $this->transport = $transport ?? new CurlTransport();
         $this->sleep = $sleep ?? static fn (float $s) => usleep((int) ($s * 1_000_000));
+    }
+
+    /** Plain http would send the API key in clear text: only local origins may use it, for testing. */
+    private static function checkBaseUrl(string $baseUrl): void
+    {
+        $scheme = strtolower((string) parse_url($baseUrl, PHP_URL_SCHEME));
+        $host = strtolower((string) parse_url($baseUrl, PHP_URL_HOST));
+        $local = in_array($host, ['localhost', '127.0.0.1', 'host.docker.internal'], true);
+        if ($host === '' || !($scheme === 'https' || ($scheme === 'http' && $local))) {
+            throw new \InvalidArgumentException('baseUrl must be https (http only for localhost, 127.0.0.1, host.docker.internal)');
+        }
+    }
+
+    /** var_dump / print_r never show the API key. */
+    public function __debugInfo(): array
+    {
+        return ['environment' => $this->environment, 'workspaceId' => $this->workspaceId, 'subaccountId' => $this->subaccountId, 'apiKey' => '****'];
     }
 
     public static function resolveEnvironment(string $apiKey): string

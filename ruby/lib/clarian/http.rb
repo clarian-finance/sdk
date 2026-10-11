@@ -8,6 +8,7 @@ require "uri"
 module Clarian
   DEFAULT_BASE_URL = "https://api.clarian.finance"
   RETRY_STATUS = [429, 502, 503, 504].freeze
+  LOCAL_HTTP_HOSTS = %w[localhost 127.0.0.1 host.docker.internal].freeze
 
   # Connection settings plus the request loop. One per client.
   class Http
@@ -26,14 +27,33 @@ module Clarian
                    transport: nil, sleeper: nil)
       @api_key = api_key
       @workspace_id = workspace_id
-      @base_url = (base_url || DEFAULT_BASE_URL).sub(%r{/+\z}, "")
+      @base_url = self.class.check_base_url(base_url || DEFAULT_BASE_URL)
       @timeout = timeout
       @environment = self.class.environment_for(api_key)
+      # A blank id would drop the header and silently act on the parent workspace.
+      raise ArgumentError, "subaccount_id must not be blank" if !subaccount_id.nil? && subaccount_id.to_s.strip.empty?
+
       @subaccount_id = subaccount_id
       @max_retries = max_retries
       @transport = transport || method(:net_http)
       @sleeper = sleeper || ->(s) { sleep(s) }
     end
+
+    # Plain http would send the API key in clear text: only local origins may use it, for testing.
+    def self.check_base_url(base_url)
+      uri = URI.parse(base_url)
+      host = uri.host.to_s.downcase
+      ok = !host.empty? && (uri.scheme == "https" || (uri.scheme == "http" && LOCAL_HTTP_HOSTS.include?(host)))
+      raise ArgumentError, "base_url must be https (http only for localhost, 127.0.0.1, host.docker.internal)" unless ok
+
+      base_url.sub(%r{/+\z}, "")
+    rescue URI::InvalidURIError
+      raise ArgumentError, "invalid base_url: #{base_url}"
+    end
+
+    # Never prints the API key.
+    def inspect = "#<Clarian::Http #{@environment} workspace=#{@workspace_id} subaccount=#{@subaccount_id.inspect} api_key=****>"
+    alias to_s inspect
 
     def with_subaccount(subaccount_id)
       self.class.new(api_key: @api_key, workspace_id: @workspace_id, base_url: @base_url, timeout: @timeout,
@@ -62,7 +82,8 @@ module Clarian
 
     # Dots are encoded too, so "." and ".." never become path dot-segments.
     def self.seg(id)
-      raise ArgumentError, "id is required" if id.to_s.empty?
+      # URL parsers resolve "." and ".." (even encoded) to another route: refuse them.
+      raise ArgumentError, "id must not be empty, '.' or '..'" if ["", ".", ".."].include?(id.to_s)
 
       id.to_s.b.gsub(/[^A-Za-z0-9\-_~]/) { |c| format("%%%02X", c.ord) }
     end

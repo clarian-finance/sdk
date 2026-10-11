@@ -149,7 +149,70 @@ def test_webhook_unparseable_timestamp():
 def test_seg_encodes_dot_segments_and_refuses_empty():
     from clarian.client import _seg
 
-    assert _seg("..") == "%2E%2E"
     assert _seg("../api-keys") == "%2E%2E%2Fapi-keys"
     with pytest.raises(ValueError):
         _seg("")
+
+
+def test_empty_webhook_secret_raises():
+    ts = datetime.now(timezone.utc).isoformat()
+    with pytest.raises(ValueError, match="secret"):
+        verify_webhook_signature("{}", sign_webhook_payload("{}", ts, ""), ts, "")
+    with pytest.raises(ValueError, match="secret"):
+        construct_webhook_event("{}", {"x-clarian-signature": "x", "x-clarian-timestamp": ts}, "")
+
+
+@pytest.mark.parametrize("bad", ["", ".", ".."])
+def test_dot_and_empty_ids_refused(bad):
+    fake = Fake((200, {}))
+    with pytest.raises(ValueError):
+        client(fake).wallets.retrieve(bad)
+    assert fake.calls == []
+
+
+def test_blank_subaccount_refused():
+    with pytest.raises(ValueError):
+        client(Fake((200, {}))).for_subaccount("  ")
+    with pytest.raises(ValueError):
+        client(Fake((200, {})), subaccount_id="")
+
+
+def test_base_url_must_be_https():
+    for bad in ("http://api.example.com", "http://localhost.evil.com", "ftp://x"):
+        with pytest.raises(ValueError, match="https"):
+            client(Fake((200, {})), base_url=bad)
+    for ok in ("https://api.example.com", "http://localhost:3000", "http://127.0.0.1", "http://host.docker.internal:8080"):
+        client(Fake((200, {})), base_url=ok)
+
+
+def test_repr_masks_key():
+    c = client(Fake((200, {})))
+    assert KEY not in repr(c) and KEY not in repr(c._http)
+
+
+def test_redirects_are_not_followed():
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from clarian.client import _urllib_transport
+
+    seen = []
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append((self.path, self.headers.get("Authorization")))
+            self.send_response(302)
+            self.send_header("Location", "/elsewhere")
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        status, _, _ = _urllib_transport("GET", f"http://127.0.0.1:{srv.server_port}/x", {"Authorization": "Bearer k"}, None, 5)
+    finally:
+        srv.shutdown()
+    assert status == 302
+    assert seen == [("/x", "Bearer k")]

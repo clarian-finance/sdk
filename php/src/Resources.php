@@ -17,9 +17,9 @@ abstract class Resource
 
     protected static function seg(string $id): string
     {
-        // Dots are encoded so "." and ".." never become path dot-segments.
-        if ($id === '') {
-            throw new \InvalidArgumentException('id is required');
+        // URL parsers resolve "." and ".." (even encoded) to another route: refuse them.
+        if ($id === '' || $id === '.' || $id === '..') {
+            throw new \InvalidArgumentException('id must not be empty, "." or ".."');
         }
         return str_replace('.', '%2E', rawurlencode($id));
     }

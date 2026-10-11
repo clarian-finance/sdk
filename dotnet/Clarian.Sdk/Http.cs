@@ -11,7 +11,11 @@ public enum ClarianEnvironment { Live, Sandbox }
 
 internal sealed record ClientConfig(
     string ApiKey, string WorkspaceId, string BaseUrl, TimeSpan Timeout,
-    ClarianEnvironment Environment, string? SubaccountId, HttpClient Http, int MaxRetries);
+    ClarianEnvironment Environment, string? SubaccountId, HttpClient Http, int MaxRetries)
+{
+    /// <summary>Never prints the API key.</summary>
+    public override string ToString() => $"ClientConfig {{ Environment = {Environment}, WorkspaceId = {WorkspaceId}, ApiKey = **** }}";
+}
 
 internal static class Http
 {
@@ -28,9 +32,11 @@ internal static class Http
         : apiKey.StartsWith("cl_test_sk_", StringComparison.Ordinal) ? ClarianEnvironment.Sandbox
         : throw new ArgumentException("Invalid API key format: must start with cl_live_sk_ or cl_test_sk_", nameof(apiKey));
 
-    // Dots are encoded so "." and ".." never become path dot-segments.
+    // URL parsers resolve "." and ".." (even encoded) to another route: refuse them.
     internal static string Seg(string id) =>
-        string.IsNullOrEmpty(id) ? throw new ArgumentException("id is required", nameof(id)) : Uri.EscapeDataString(id).Replace(".", "%2E");
+        string.IsNullOrEmpty(id) || id == "." || id == ".."
+            ? throw new ArgumentException("id must not be empty, \".\" or \"..\"", nameof(id))
+            : Uri.EscapeDataString(id).Replace(".", "%2E");
 
     /// <summary>Money-moving creates: an empty key throws before any network call.</summary>
     internal static string RequireKey(string idempotencyKey) =>

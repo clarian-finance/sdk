@@ -1,6 +1,6 @@
 # @clarian-finance/sdk
 
-SDK TypeScript da API v2 da Clarian: PIX de entrada e saída, cotação e conversão entre real e stablecoins, carteiras e envio de cripto, clientes e KYC, links de pagamento, subcontas e webhooks. Sem dependências em tempo de execução. Node 18+, Bun, Deno e navegadores com `fetch`.
+SDK TypeScript da API v2 da Clarian: PIX de entrada e saída, cotação e conversão entre real e stablecoins, carteiras e envio de cripto, clientes e KYC, links de pagamento, subcontas e webhooks. Sem dependências em tempo de execução. Node 18+, Bun e Deno. Só no servidor: a chave de API é secreta, nunca a envie para navegador ou app.
 
 [Read in English](./README.md)
 

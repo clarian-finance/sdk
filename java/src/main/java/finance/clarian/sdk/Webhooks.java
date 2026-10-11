@@ -37,6 +37,8 @@ public final class Webhooks {
     }
 
     public static boolean verifySignature(String body, String signature, String timestamp, String secret, Duration tolerance) {
+        // An empty secret makes the HMAC forgeable by anyone: refuse it outright.
+        if (secret == null || secret.isEmpty()) throw new IllegalArgumentException("webhook secret is required");
         if (body == null || signature == null || timestamp == null || secret == null) return false;
         Instant sentAt;
         try {

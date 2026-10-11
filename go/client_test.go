@@ -3,10 +3,12 @@ package clarian
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -200,5 +202,63 @@ func TestSegEncodesDotSegments(t *testing.T) {
 func TestFloatNestedInRowSliceRefused(t *testing.T) {
 	if _, err := normalize("", Row{"splits": []Row{{"amount_minor": 12.5}}}); err == nil {
 		t.Fatal("float inside []Row was accepted")
+	}
+}
+
+func TestWebhookEmptySecretRefused(t *testing.T) {
+	body := []byte(`{}`)
+	ts := time.Now().UTC().Format(time.RFC3339Nano)
+	h := http.Header{}
+	h.Set("X-Clarian-Timestamp", ts)
+	h.Set("X-Clarian-Signature", SignWebhookPayload(body, ts, ""))
+	if _, err := ConstructWebhookEvent(body, h, ""); !errors.Is(err, ErrWebhookSecretRequired) {
+		t.Fatalf("empty secret: %v", err)
+	}
+	if VerifyWebhookSignature(body, SignWebhookPayload(body, ts, ""), ts, "", DefaultWebhookTolerance) {
+		t.Fatal("empty secret verified")
+	}
+}
+
+func TestDotAndEmptyIDsRefused(t *testing.T) {
+	c, _ := New("cl_test_sk_x", "ws", WithBaseURL("http://127.0.0.1:1"))
+	for _, id := range []string{"", ".", ".."} {
+		if _, err := c.Wallets.Retrieve(context.Background(), id); !errors.Is(err, ErrInvalidID) {
+			t.Fatalf("id %q: %v", id, err)
+		}
+	}
+}
+
+func TestBlankSubaccountRefused(t *testing.T) {
+	if _, err := New("cl_test_sk_x", "ws", WithSubaccount(" ")); err == nil {
+		t.Fatal("blank WithSubaccount accepted")
+	}
+	c, _ := New("cl_test_sk_x", "ws")
+	defer func() {
+		if recover() == nil {
+			t.Fatal("blank ForSubaccount did not panic")
+		}
+	}()
+	c.ForSubaccount("")
+}
+
+func TestBaseURLMustBeHTTPS(t *testing.T) {
+	for _, u := range []string{"http://api.example.com", "http://localhost.evil.com", "ftp://x", "not a url"} {
+		if _, err := New("cl_test_sk_x", "ws", WithBaseURL(u)); err == nil {
+			t.Fatalf("%s accepted", u)
+		}
+	}
+	for _, u := range []string{"https://api.example.com", "http://localhost:3000", "http://127.0.0.1", "http://host.docker.internal:8080"} {
+		if _, err := New("cl_test_sk_x", "ws", WithBaseURL(u)); err != nil {
+			t.Fatalf("%s refused: %v", u, err)
+		}
+	}
+}
+
+func TestPrintingMasksKey(t *testing.T) {
+	c, _ := New("cl_test_sk_secret", "ws")
+	for _, f := range []string{"%v", "%+v", "%#v", "%s"} {
+		if out := fmt.Sprintf(f, c) + fmt.Sprintf(f, *c); strings.Contains(out, "cl_test_sk_secret") {
+			t.Fatalf("%s leaked key: %s", f, out)
+		}
 	}
 }
