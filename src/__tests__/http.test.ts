@@ -80,7 +80,7 @@ describe("request", () => {
   it("refuses a money create with no idempotency key before any network call", async () => {
     const r = recorder([]);
     const c = new Clarian({ apiKey: KEY, workspaceId: WS, fetch: r.fetch });
-    expect(() => c.pix.payouts.create({ amount_minor: 1 }, "")).toThrow("idempotencyKey is required");
+    await expect(c.pix.payouts.create({ amount_minor: 1 }, "")).rejects.toThrow("idempotencyKey is required");
     expect(r.calls).toHaveLength(0);
   });
 

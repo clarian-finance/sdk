@@ -72,7 +72,7 @@ const afterIn = await step("balances after cash-in", () => clarian.balances.list
 outcomes.push({ step: "cash-in credited 100.00", ok: brl(afterIn) - brl(before) === 10000n, note: String(brl(afterIn) - brl(before)) });
 
 // Cash-out
-await step("pix.payouts.fee", () => clarian.pix.payouts.fee({ amount_minor: "1000", currency: "BRL" }), "PixFeeQuote");
+await step("pix.payouts.fee", () => clarian.pix.payouts.fee({ amount_minor: "1000" }), "PixFeeQuote");
 await step("pix.payouts.lookup", () => clarian.pix.payouts.lookup({ pix_key: "maria@example.com" }), "PixDictResult");
 await step("pix.payouts.listAccounts", () => clarian.pix.payouts.listAccounts(), "PayoutAccount");
 const idem = key();
@@ -111,11 +111,11 @@ if (payin?.id) await step("transactions.retrieve", () => clarian.transactions.re
 await step("transactions.statement", () => clarian.transactions.statement({ limit: 5 }), "StatementLine");
 
 // Customers and KYC
-const customer = await step("customers.create", () => clarian.customers.create({ kind: "person", display_name: "SDK E2E", document_type: "cpf", document_number: cpf() } as never), "Customer");
+const customer = await step("customers.create", () => clarian.customers.create({ kind: "person", display_name: "SDK E2E", document_type: "cpf", document_number: cpf() }), "Customer");
 await step("customers.list", () => clarian.customers.list(), "Customer");
 if (customer?.id) {
   await step("customers.retrieve", () => clarian.customers.retrieve(customer.id!), "Customer");
-  await step("customers.update", () => clarian.customers.update(customer.id!, { display_name: "SDK E2E 2" } as never), "Customer");
+  await step("customers.update", () => clarian.customers.update(customer.id!, { display_name: "SDK E2E 2" }), "Customer");
 }
 await step("kyc.list", () => clarian.kyc.list(), "KycCase");
 
@@ -137,9 +137,9 @@ const link = await step("paymentLinks.create", () => clarian.paymentLinks.create
 await step("paymentLinks.list", () => clarian.paymentLinks.list(), "PaymentLink");
 if (link?.id) {
   await step("paymentLinks.retrieve", () => clarian.paymentLinks.retrieve(link.id!), "PaymentLink");
-  await step("paymentLinks.update", () => clarian.paymentLinks.update(link.id!, { title: "SDK E2E 2" } as never), "PaymentLink");
+  await step("paymentLinks.update", () => clarian.paymentLinks.update(link.id!, { title: "SDK E2E 2" }), "PaymentLink");
   await step("paymentLinks.splits", () => clarian.paymentLinks.splits(link.id!), "PaymentLinkSplit");
-  await step("paymentLinks.charge", () => clarian.paymentLinks.charge(link.id!, { payer_name: "Maria Silva", payer_document: "52998224725" } as never, key()), "CheckoutPaymentResult");
+  await step("paymentLinks.charge", () => clarian.paymentLinks.charge(link.id!, { payer_name: "Maria Silva", payer_document: "52998224725" }, key()), "CheckoutPaymentResult");
   const slug = (link as { slug?: string }).slug;
   if (slug) await step("checkout.retrieve", () => clarian.checkout.retrieve(slug), "PublicCheckout");
 }
@@ -147,7 +147,7 @@ await step("paymentLinks.payments", () => clarian.paymentLinks.payments({ limit:
 await step("paymentLinks.stats", () => clarian.paymentLinks.stats());
 
 // Sub-accounts
-const sub = await step("subaccounts.create", () => clarian.subaccounts.create({ display_name: `SDK E2E ${Date.now()}` } as never), "SubAccount");
+const sub = await step("subaccounts.create", () => clarian.subaccounts.create({ display_name: `SDK E2E ${Date.now()}` }), "SubAccount");
 await step("subaccounts.list", () => clarian.subaccounts.list(), "SubAccount");
 if (sub?.id) {
   await step("subaccounts.retrieve", () => clarian.subaccounts.retrieve(sub.id!), "SubAccount");
