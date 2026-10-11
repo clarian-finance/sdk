@@ -16,6 +16,9 @@ const DefaultWebhookTolerance = 5 * time.Minute
 // ErrInvalidWebhook is returned when the signature or timestamp is bad.
 var ErrInvalidWebhook = errors.New("invalid webhook signature or timestamp outside tolerance")
 
+// ErrWebhookSecretRequired is returned for an empty secret: its HMAC would be forgeable by anyone.
+var ErrWebhookSecretRequired = errors.New("webhook secret is required")
+
 // WebhookEvent is the body of a delivery. Data is a Row with payment_id, kind, status, amount_minor, currency, ...
 type WebhookEvent struct {
 	ID        string `json:"id"`
@@ -32,8 +35,11 @@ func SignWebhookPayload(body []byte, timestamp, secret string) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
-// VerifyWebhookSignature checks the HMAC and the timestamp age. An unparseable timestamp fails closed.
+// VerifyWebhookSignature checks the HMAC and the timestamp age. An unparseable timestamp or an empty secret fails closed.
 func VerifyWebhookSignature(body []byte, signature, timestamp, secret string, tolerance time.Duration) bool {
+	if secret == "" {
+		return false
+	}
 	sentAt, err := time.Parse(time.RFC3339Nano, timestamp)
 	if err != nil {
 		return false
@@ -47,6 +53,9 @@ func VerifyWebhookSignature(body []byte, signature, timestamp, secret string, to
 // ConstructWebhookEvent verifies a delivery and returns its parsed body. rawBody must be the exact
 // bytes received. Dedupe on event.ID: a delivery can arrive more than once.
 func ConstructWebhookEvent(rawBody []byte, h http.Header, secret string) (*WebhookEvent, error) {
+	if secret == "" {
+		return nil, ErrWebhookSecretRequired
+	}
 	if !VerifyWebhookSignature(rawBody, h.Get("X-Clarian-Signature"), h.Get("X-Clarian-Timestamp"), secret, DefaultWebhookTolerance) {
 		return nil, ErrInvalidWebhook
 	}

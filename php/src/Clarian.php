@@ -91,6 +91,15 @@ final class Clarian
     /** A client that acts on one child workspace (sends X-Subaccount-Id). */
     public function forSubaccount(string $subaccountId): self
     {
+        if (trim($subaccountId) === '') {
+            throw new \InvalidArgumentException('subaccountId is required');
+        }
         return new self('-', '-', http: $this->http->withSubaccount($subaccountId));
+    }
+
+    /** var_dump / print_r never show the API key. */
+    public function __debugInfo(): array
+    {
+        return ['environment' => $this->environment, 'http' => $this->http];
     }
 }

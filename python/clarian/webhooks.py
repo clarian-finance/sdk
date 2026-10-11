@@ -27,6 +27,9 @@ def _parse_ts(timestamp: str) -> float | None:
 def verify_webhook_signature(
     body: str, signature: str, timestamp: str, secret: str, tolerance: float = DEFAULT_TOLERANCE_SECONDS
 ) -> bool:
+    # An empty secret makes the HMAC forgeable by anyone: refuse it outright.
+    if not secret:
+        raise ValueError("webhook secret is required")
     sent_at = _parse_ts(timestamp)
     # An unparseable or naive timestamp fails closed.
     if sent_at is None or abs(time.time() - sent_at) > tolerance:

@@ -52,4 +52,12 @@ public class WebhooksTests
         Assert.False(ClarianWebhooks.VerifySignature(Body, ClarianWebhooks.Sign(Body, ts, Secret), ts, Secret));
         Assert.False(ClarianWebhooks.VerifySignature(Body, ClarianWebhooks.Sign(Body, "", Secret), "", Secret));
     }
+
+    [Fact]
+    public void EmptySecretThrows()
+    {
+        var ts = Now();
+        Assert.Throws<ArgumentException>(() => ClarianWebhooks.VerifySignature(Body, "00", ts, ""));
+        Assert.Throws<ArgumentException>(() => ClarianWebhooks.ConstructEvent(Body, "00", ts, null!));
+    }
 }

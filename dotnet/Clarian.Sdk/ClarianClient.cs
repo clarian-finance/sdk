@@ -17,6 +17,9 @@ public sealed record ClarianOptions
     public int MaxRetries { get; init; } = 2;
     /// <summary>Custom HttpClient (tests, proxies). Default a shared instance.</summary>
     public HttpClient? HttpClient { get; init; }
+
+    /// <summary>Never prints the API key.</summary>
+    public override string ToString() => $"ClarianOptions {{ WorkspaceId = {WorkspaceId}, SubaccountId = {SubaccountId}, BaseUrl = {BaseUrl}, ApiKey = **** }}";
 }
 
 public sealed class ClarianClient
@@ -54,9 +57,12 @@ public sealed class ClarianClient
     {
         if (string.IsNullOrEmpty(options.ApiKey)) throw new ArgumentException("apiKey is required");
         if (string.IsNullOrEmpty(options.WorkspaceId)) throw new ArgumentException("workspaceId is required");
+        // A blank id would drop the header and silently act on the parent workspace.
+        if (options.SubaccountId is not null && string.IsNullOrWhiteSpace(options.SubaccountId))
+            throw new ArgumentException("subaccountId must not be blank");
         _options = options;
         var c = _config = new ClientConfig(
-            options.ApiKey, options.WorkspaceId, (options.BaseUrl ?? DefaultBaseUrl).TrimEnd('/'),
+            options.ApiKey, options.WorkspaceId, CheckBaseUrl(options.BaseUrl ?? DefaultBaseUrl),
             options.Timeout ?? TimeSpan.FromSeconds(30), Http.ResolveEnvironment(options.ApiKey),
             options.SubaccountId, options.HttpClient ?? SharedHttp, options.MaxRetries);
         Balances = new(c); Wallets = new(c); Transactions = new(c); Pix = new(c); Conversions = new(c);
@@ -69,5 +75,22 @@ public sealed class ClarianClient
     public Task<JsonElement> PingAsync(CancellationToken ct = default) => Http.RequestAsync(_config, HttpMethod.Get, "ping", ct: ct);
 
     /// <summary>A client that acts on one child workspace (sends <c>X-Subaccount-Id</c>).</summary>
-    public ClarianClient ForSubaccount(string subaccountId) => new(_options with { SubaccountId = subaccountId });
+    public ClarianClient ForSubaccount(string subaccountId) =>
+        string.IsNullOrWhiteSpace(subaccountId)
+            ? throw new ArgumentException("subaccountId is required", nameof(subaccountId))
+            : new(_options with { SubaccountId = subaccountId });
+
+    /// <summary>Never prints the API key.</summary>
+    public override string ToString() => $"ClarianClient {{ Environment = {Environment}, {_options} }}";
+
+    private static readonly HashSet<string> LocalHttpHosts = new(StringComparer.OrdinalIgnoreCase) { "localhost", "127.0.0.1", "host.docker.internal" };
+
+    // Plain http would send the API key in clear text: only local origins may use it, for testing.
+    private static string CheckBaseUrl(string baseUrl)
+    {
+        var ok = Uri.TryCreate(baseUrl, UriKind.Absolute, out var u)
+            && (u.Scheme == Uri.UriSchemeHttps || (u.Scheme == Uri.UriSchemeHttp && LocalHttpHosts.Contains(u.Host)));
+        if (!ok) throw new ArgumentException("baseUrl must be https (http only for localhost, 127.0.0.1, host.docker.internal)", nameof(baseUrl));
+        return baseUrl.TrimEnd('/');
+    }
 }

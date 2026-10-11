@@ -34,7 +34,7 @@ final class ClientTest extends TestCase
 
     private function client(FakeTransport $t, string $key = 'cl_test_sk_abc'): Clarian
     {
-        return new Clarian($key, 'ws_1', baseUrl: 'http://api.local/', transport: $t, sleep: function (float $s) { $this->slept[] = $s; });
+        return new Clarian($key, 'ws_1', baseUrl: 'https://api.local/', transport: $t, sleep: function (float $s) { $this->slept[] = $s; });
     }
 
     private static function ok(mixed $data): array { return [200, json_encode(['data' => $data]), []]; }
@@ -46,7 +46,7 @@ final class ClientTest extends TestCase
         $this->assertSame([['currency' => 'BRL']], $out);
         $c = $t->calls[0];
         $this->assertSame('GET', $c['method']);
-        $this->assertSame('http://api.local/v1/test/transactions?limit=5', $c['url']);
+        $this->assertSame('https://api.local/v1/test/transactions?limit=5', $c['url']);
         $this->assertSame('Bearer cl_test_sk_abc', $c['headers']['Authorization']);
         $this->assertSame('ws_1', $c['headers']['X-Workspace-Id']);
         $this->assertArrayNotHasKey('X-Subaccount-Id', $c['headers']);
@@ -60,7 +60,7 @@ final class ClientTest extends TestCase
         $this->assertSame('live', $c->environment);
         $c->forSubaccount('sub 1')->pix->payins->create(['amount_minor' => 10000, 'currency' => 'BRL'], 'k-1');
         $call = $t->calls[0];
-        $this->assertSame('http://api.local/v1/live/pix/payins', $call['url']);
+        $this->assertSame('https://api.local/v1/live/pix/payins', $call['url']);
         $this->assertSame('sub 1', $call['headers']['X-Subaccount-Id']);
         $this->assertSame('k-1', $call['headers']['Idempotency-Key']);
         $this->assertSame('application/json', $call['headers']['Content-Type']);
@@ -177,5 +177,48 @@ final class ClientTest extends TestCase
             }
         }
         $this->assertCount(0, $t->calls);
+    }
+
+    public function testDotAndEmptyIdsRefused(): void
+    {
+        $t = new FakeTransport([]);
+        foreach (['', '.', '..'] as $id) {
+            try {
+                $this->client($t)->wallets->retrieve($id);
+                $this->fail("id '$id' accepted");
+            } catch (\InvalidArgumentException) {
+            }
+        }
+        $this->assertSame([], $t->calls);
+    }
+
+    public function testBlankSubaccountRefused(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->client(new FakeTransport([]))->forSubaccount('  ');
+    }
+
+    public function testBaseUrlMustBeHttps(): void
+    {
+        foreach (['http://api.example.com', 'http://localhost.evil.com', 'ftp://x'] as $u) {
+            try {
+                new Clarian('cl_test_sk_x', 'ws', baseUrl: $u);
+                $this->fail("$u accepted");
+            } catch (\InvalidArgumentException) {
+            }
+        }
+        foreach (['https://api.example.com', 'http://localhost:3000', 'http://127.0.0.1', 'http://host.docker.internal:8080'] as $u) {
+            $this->assertInstanceOf(Clarian::class, new Clarian('cl_test_sk_x', 'ws', baseUrl: $u));
+        }
+    }
+
+    public function testDumpMasksKey(): void
+    {
+        $c = new Clarian('cl_test_sk_secret', 'ws');
+        $out = print_r($c, true) . print_r($c->forSubaccount('sub'), true);
+        ob_start();
+        var_dump($c);
+        $out .= ob_get_clean();
+        $this->assertStringNotContainsString('cl_test_sk_secret', $out);
     }
 }

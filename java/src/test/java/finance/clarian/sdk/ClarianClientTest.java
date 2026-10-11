@@ -32,7 +32,7 @@ class ClarianClientTest {
     }
 
     static ClarianClient client(Fake f) {
-        return ClarianClient.builder().apiKey("cl_test_sk_abc").workspaceId("ws-1").baseUrl("http://x/").transport(f).build();
+        return ClarianClient.builder().apiKey("cl_test_sk_abc").workspaceId("ws-1").baseUrl("https://x/").transport(f).build();
     }
 
     @Test void buildsRequestWithHeadersAndUnwrapsData() {
@@ -41,7 +41,7 @@ class ClarianClientTest {
         assertEquals("p1", p.get("id"));
         Call c = f.calls.get(0);
         assertEquals("POST", c.method());
-        assertEquals("http://x/v1/test/pix/payins", c.url());
+        assertEquals("https://x/v1/test/pix/payins", c.url());
         assertEquals("Bearer cl_test_sk_abc", c.headers().get("Authorization"));
         assertEquals("ws-1", c.headers().get("X-Workspace-Id"));
         assertEquals("sub-9", c.headers().get("X-Subaccount-Id"));
@@ -114,5 +114,35 @@ class ClarianClientTest {
         Fake f = new Fake(n -> json(200, "{}"));
         assertThrows(IllegalArgumentException.class, () -> client(f).pix.payouts.fee(Map.of("amount_minor", 10.5)));
         assertEquals(0, f.calls.size());
+    }
+
+    @Test void dotAndEmptyIdsRefused() {
+        Fake f = new Fake(n -> json(200, "{}"));
+        for (String id : new String[] {"", ".", ".."}) {
+            assertThrows(IllegalArgumentException.class, () -> client(f).wallets.retrieve(id));
+        }
+        assertTrue(f.calls.isEmpty());
+    }
+
+    @Test void blankSubaccountRefused() {
+        Fake f = new Fake(n -> json(200, "{}"));
+        assertThrows(IllegalArgumentException.class, () -> client(f).forSubaccount(" "));
+        assertThrows(IllegalArgumentException.class, () -> client(f).forSubaccount(null));
+        assertThrows(IllegalArgumentException.class, () -> ClarianClient.builder().apiKey("cl_test_sk_x").workspaceId("ws").subaccountId("").build());
+    }
+
+    @Test void baseUrlMustBeHttps() {
+        for (String u : new String[] {"http://api.example.com", "http://localhost.evil.com", "ftp://x"}) {
+            assertThrows(IllegalArgumentException.class, () -> ClarianClient.builder().apiKey("cl_test_sk_x").workspaceId("ws").baseUrl(u).build(), u);
+        }
+        for (String u : new String[] {"https://api.example.com", "http://localhost:3000", "http://127.0.0.1", "http://host.docker.internal:8080"}) {
+            assertDoesNotThrow(() -> ClarianClient.builder().apiKey("cl_test_sk_x").workspaceId("ws").baseUrl(u).build(), u);
+        }
+    }
+
+    @Test void toStringMasksKey() {
+        ClarianClient c = ClarianClient.builder().apiKey("cl_test_sk_secret").workspaceId("ws").build();
+        assertFalse(c.toString().contains("cl_test_sk_secret"));
+        assertFalse(ClarianClient.builder().apiKey("cl_test_sk_secret").toString().contains("cl_test_sk_secret"));
     }
 }

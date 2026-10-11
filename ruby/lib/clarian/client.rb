@@ -38,11 +38,17 @@ module Clarian
       @treasury = Treasury.new(@http)
     end
 
+    # Never prints the API key.
+    def inspect = "#<Clarian::Client #{@http.inspect}>"
+    alias to_s inspect
+
     # Checks the key and workspace.
     def ping = @http.request("GET", "ping")
 
     # A client that acts on one child workspace (sends X-Subaccount-Id).
     def for_subaccount(subaccount_id)
+      raise ArgumentError, "subaccount_id is required" if subaccount_id.to_s.strip.empty?
+
       Client.new(api_key: @http.api_key, workspace_id: @http.workspace_id, http: @http.with_subaccount(subaccount_id))
     end
   end

@@ -1,6 +1,6 @@
 # @clarian-finance/sdk
 
-TypeScript SDK for the Clarian API v2: PIX cash-in and cash-out, BRL/stablecoin quotes and conversion, wallets and crypto sends, customers and KYC, payment links, sub-accounts and webhooks. Zero runtime dependencies. Node 18+, Bun, Deno and browsers with `fetch`.
+TypeScript SDK for the Clarian API v2: PIX cash-in and cash-out, BRL/stablecoin quotes and conversion, wallets and crypto sends, customers and KYC, payment links, sub-accounts and webhooks. Zero runtime dependencies. Node 18+, Bun and Deno. Server-side only: an API key is a secret, so never ship it to a browser or mobile app.
 
 [Leia em português](./README.pt-BR.md)
 

@@ -120,7 +120,9 @@ await clarian.Webhooks.TestAsync(hook.GetProperty("id").GetString()!); // sandbo
 Verify every delivery on the raw body before trusting it:
 
 ```csharp
-// ASP.NET Core minimal API
+// ASP.NET Core minimal API. An empty secret throws ArgumentException.
+var webhookSecret = Environment.GetEnvironmentVariable("CLARIAN_WEBHOOK_SECRET")
+    ?? throw new InvalidOperationException("CLARIAN_WEBHOOK_SECRET is not set");
 app.MapPost("/clarian", async (HttpRequest req) =>
 {
     using var reader = new StreamReader(req.Body);

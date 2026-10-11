@@ -122,7 +122,7 @@ Verify every delivery on the raw body before trusting it:
 ```go
 http.HandleFunc("/clarian", func(w http.ResponseWriter, r *http.Request) {
 	raw, _ := io.ReadAll(r.Body)
-	event, err := clarian.ConstructWebhookEvent(raw, r.Header, os.Getenv("CLARIAN_WEBHOOK_SECRET"))
+	event, err := clarian.ConstructWebhookEvent(raw, r.Header, os.Getenv("CLARIAN_WEBHOOK_SECRET")) // unset secret: ErrWebhookSecretRequired
 	if err != nil {
 		http.Error(w, "bad signature", http.StatusBadRequest)
 		return

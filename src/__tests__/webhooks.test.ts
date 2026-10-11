@@ -67,3 +67,11 @@ describe("constructWebhookEvent", () => {
     await expect(constructWebhookEvent(body, {}, SECRET)).rejects.toThrow("Invalid webhook signature");
   });
 });
+
+describe("empty secret", () => {
+  it("refuses to verify with an empty secret", async () => {
+    const ts = new Date().toISOString();
+    const sig = "00".repeat(32);
+    await expect(verifyWebhookSignature(body, sig, ts, "")).rejects.toThrow(/secret/);
+  });
+});

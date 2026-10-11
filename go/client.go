@@ -45,6 +45,7 @@ type Client struct {
 	apiKey, workspaceID, subaccountID, baseURL, env string
 	http                                            *http.Client
 	maxRetries                                      int
+	subaccountSet                                   bool
 
 	Balances      *Balances
 	Wallets       *Wallets
@@ -88,7 +89,26 @@ func WithHTTPClient(h *http.Client) Option {
 func WithMaxRetries(n int) Option { return func(c *Client) { c.maxRetries = n } }
 
 // WithSubaccount acts on one child workspace (sends X-Subaccount-Id).
-func WithSubaccount(id string) Option { return func(c *Client) { c.subaccountID = id } }
+func WithSubaccount(id string) Option {
+	return func(c *Client) { c.subaccountID, c.subaccountSet = strings.TrimSpace(id), true }
+}
+
+// ErrInvalidID is returned for an empty, "." or ".." path id: a URL parser resolves dot-segments to another route.
+var ErrInvalidID = errors.New("clarian: id must not be empty, \".\" or \"..\"")
+
+// localHTTP are the only origins allowed over plain http, for local testing.
+var localHTTP = map[string]bool{"localhost": true, "127.0.0.1": true, "host.docker.internal": true}
+
+func checkBaseURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil {
+		return fmt.Errorf("clarian: invalid base URL %q", raw)
+	}
+	if u.Scheme == "https" || (u.Scheme == "http" && localHTTP[strings.ToLower(u.Hostname())]) {
+		return nil
+	}
+	return errors.New("clarian: base URL must be https (http only for localhost, 127.0.0.1, host.docker.internal)")
+}
 
 // New builds a client. The key prefix picks the environment: cl_test_sk_ -> /v1/test, cl_live_sk_ -> /v1/live.
 func New(apiKey, workspaceID string, opts ...Option) (*Client, error) {
@@ -107,6 +127,12 @@ func New(apiKey, workspaceID string, opts ...Option) (*Client, error) {
 	}
 	for _, o := range opts {
 		o(c)
+	}
+	if err := checkBaseURL(c.baseURL); err != nil {
+		return nil, err
+	}
+	if c.subaccountSet && c.subaccountID == "" {
+		return nil, errors.New("clarian: subaccount id is required")
 	}
 	c.Balances = &Balances{c}
 	c.Wallets = &Wallets{c}
@@ -140,8 +166,20 @@ func (c *Client) Environment() string {
 	return "sandbox"
 }
 
-// ForSubaccount returns a client that acts on one child workspace.
+// String masks the API key so printing a client (%v, %+v) never reveals it.
+func (c Client) String() string {
+	return fmt.Sprintf("clarian.Client{env: %s, workspace: %s, subaccount: %s, apiKey: ****}", c.env, c.workspaceID, c.subaccountID)
+}
+
+// GoString masks the API key for %#v.
+func (c Client) GoString() string { return c.String() }
+
+// ForSubaccount returns a client that acts on one child workspace. It panics on a blank id,
+// which would otherwise drop the header and silently act on the parent workspace.
 func (c *Client) ForSubaccount(id string) *Client {
+	if strings.TrimSpace(id) == "" {
+		panic("clarian: ForSubaccount needs a non-empty id")
+	}
 	n, _ := New(c.apiKey, c.workspaceID, WithBaseURL(c.baseURL), WithHTTPClient(c.http), WithMaxRetries(c.maxRetries), WithSubaccount(id))
 	return n
 }
@@ -215,6 +253,11 @@ func backoff(attempt int, retryAfter string) time.Duration {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, o reqOpts, out any) error {
+	for _, p := range strings.Split(path, "/") {
+		if p == "" || p == "%2E" || p == "%2E%2E" {
+			return ErrInvalidID
+		}
+	}
 	u := fmt.Sprintf("%s/v1/%s/%s", c.baseURL, c.env, path)
 	q := url.Values{}
 	for k, v := range o.query {
@@ -359,6 +402,5 @@ func postKeyed[T any](ctx context.Context, c *Client, path string, body any, key
 	return call[T](ctx, c, http.MethodPost, path, reqOpts{body: body, idemKey: key})
 }
 
-// seg escapes one path segment; dots too, so "." and ".." never become dot-segments.
-// ponytail: an empty id is not refused here (no error path); the API answers it as a list or 404.
+// seg escapes one path segment; an empty, "." or ".." id is refused by do (ErrInvalidID).
 func seg(id string) string { return strings.ReplaceAll(url.PathEscape(id), ".", "%2E") }

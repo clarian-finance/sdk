@@ -26,13 +26,14 @@ export class Clarian {
   readonly approvals: R.Approvals;
   readonly treasury: R.Treasury;
   private readonly config: HttpClientConfig;
-  private readonly options: ClarianConfig;
+  private declare readonly options: ClarianConfig;
 
   constructor(options: ClarianConfig) {
     if (!options.apiKey) throw new Error("apiKey is required");
     if (!options.workspaceId) throw new Error("workspaceId is required");
     const c = createHttpConfig(options);
-    this.options = options;
+    // Non-enumerable so printing the client never shows the API key.
+    Object.defineProperty(this, "options", { value: options, enumerable: false });
     this.config = c;
     this.environment = c.environment;
     this.balances = new R.Balances(c);
@@ -65,6 +66,8 @@ export class Clarian {
 
   /** A client that acts on one child workspace (sends `X-Subaccount-Id`). */
   forSubaccount(subaccountId: string): Clarian {
+    // A blank id would drop the header and silently act on the parent workspace.
+    if (!subaccountId?.trim()) throw new Error("subaccountId is required");
     return new Clarian({ ...this.options, subaccountId });
   }
 }

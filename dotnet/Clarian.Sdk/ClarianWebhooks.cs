@@ -23,6 +23,8 @@ public static class ClarianWebhooks
 
     public static bool VerifySignature(string body, string signature, string timestamp, string secret, TimeSpan? tolerance = null)
     {
+        // An empty secret makes the HMAC forgeable by anyone: refuse it outright.
+        if (string.IsNullOrEmpty(secret)) throw new ArgumentException("webhook secret is required", nameof(secret));
         // An unparseable timestamp fails closed.
         if (!DateTimeOffset.TryParse(timestamp, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var sentAt)) return false;
         if ((DateTimeOffset.UtcNow - sentAt).Duration() > (tolerance ?? DefaultTolerance)) return false;

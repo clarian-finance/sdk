@@ -101,8 +101,36 @@ describe("retry eligibility", () => {
 
 describe("seg", () => {
   it("encodes dots so an id cannot become a dot-segment, and refuses an empty id", () => {
-    expect(seg("..")).toBe("%2E%2E");
     expect(seg("../api-keys")).toBe("%2E%2E%2Fapi-keys");
     expect(() => seg("")).toThrow("id is required");
+  });
+});
+
+describe("hardening", () => {
+  it("refuses dot-segment ids", () => {
+    expect(() => seg(".")).toThrow();
+    expect(() => seg("..")).toThrow();
+    expect(() => seg("")).toThrow();
+  });
+
+  it("refuses a blank sub-account id", () => {
+    const c = new Clarian({ apiKey: KEY, workspaceId: WS });
+    expect(() => c.forSubaccount("")).toThrow(/subaccountId/);
+    expect(() => c.forSubaccount("  ")).toThrow(/subaccountId/);
+  });
+
+  it("requires https except for local hosts", () => {
+    expect(() => new Clarian({ apiKey: KEY, workspaceId: WS, baseUrl: "http://api.example.com" })).toThrow(/https/);
+    expect(() => new Clarian({ apiKey: KEY, workspaceId: WS, baseUrl: "http://localhost.evil.com" })).toThrow(/https/);
+    for (const u of ["http://localhost:3000", "http://127.0.0.1", "http://host.docker.internal:8080/"]) {
+      expect(() => new Clarian({ apiKey: KEY, workspaceId: WS, baseUrl: u })).not.toThrow();
+    }
+  });
+
+  it("never prints the API key", async () => {
+    const { inspect } = await import("node:util");
+    const c = new Clarian({ apiKey: KEY, workspaceId: WS }).forSubaccount("sub_1");
+    expect(inspect(c, { depth: 10 })).not.toContain(KEY);
+    expect(JSON.stringify(c)).not.toContain(KEY);
   });
 });
