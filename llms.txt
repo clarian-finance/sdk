@@ -37,7 +37,7 @@ Convert (direction is always base → quote; `side` is ignored):
 1. `POST /rfq/quote {base_currency:"BRL", quote_currency:"USDT", base_amount_minor:"50000"}` → `id`, `quote_amount_minor` (after fees), `fee_minor`, `expires_at`.
 2. `POST /rfq/execute {quote_id}` → 200 `{quote_id, payment, ledger}` settled, or 202 `{quote_id, payment, status:"processing"}`. A quote executes once (409 `quote_not_open`); late is 410 `quote_expired`.
 
-Crypto: `GET /wallets`, `GET /wallets/{id}/balance`, `GET /crypto/networks`, `POST /crypto/send {amount_minor, currency, network, to_address}`.
+Crypto: `GET /wallets`, `GET /wallets/{id}/balance`, `GET /crypto/networks`, `POST /crypto/send {amount_minor, currency, network, to_address}`; with an API key `to_address` must be on the dashboard whitelist (403 `destination_not_whitelisted`).
 
 Sandbox: `POST /pix/payins/{id}/simulate`, `/pix/payouts/{id}/simulate`, `/crypto/send/{id}/simulate` with `{status:"completed"|"failed"}`.
 

@@ -2412,7 +2412,7 @@
           "Crypto"
         ],
         "summary": "Send crypto",
-        "description": "From one of the party's own wallets. X-OTP-Code is checked only when the caller is a 2FA dashboard session; a plain API-key call is never asked for it.",
+        "description": "From one of the party's own wallets. X-OTP-Code is checked only when the caller is a 2FA dashboard session; a plain API-key call is never asked for it. With an API key the destination must be a wallet registered in the dashboard whitelist, whatever the amount; otherwise 403 `destination_not_whitelisted`.",
         "operationId": "createCryptoSend",
         "parameters": [
           {

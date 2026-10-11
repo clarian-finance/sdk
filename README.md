@@ -80,6 +80,7 @@ A quote converts once: a second execute is 409 `quote_not_open`, an expired one 
 const wallets = await clarian.wallets.list();
 await clarian.wallets.balance(wallets[0].id!);
 await clarian.crypto.networks();
+// API keys send only to wallets registered in the dashboard whitelist (403 destination_not_whitelisted).
 await clarian.crypto.send({ amount_minor: "5000000", currency: "USDT", network: "polygon", to_address: "0x…" }, "send-17");
 ```
 
