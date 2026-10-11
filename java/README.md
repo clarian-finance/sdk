@@ -1,218 +1,195 @@
 # clarian-sdk (Java)
 
-Official Java SDK for the [Clarian Finance API](https://api.clarian.finance). PIX cash-in/cash-out, balances, wallets, transactions, and webhooks.
-
-Package: `finance.clarian.sdk` · coordinates: `finance.clarian:clarian-sdk:0.4.1` · **stdlib only** (no third-party runtime dependencies). Requires Java 17+.
+Java SDK for the Clarian API v2: PIX cash-in and cash-out, BRL/stablecoin quotes and conversion, wallets and crypto sends, customers and KYC, payment links, sub-accounts and webhooks. Standard library only (no runtime dependencies). Java 17+.
 
 ## Install
 
-From this monorepo:
+From this repo:
 
 ```bash
 cd java
 gradle publishToMavenLocal
 ```
 
-Then depend on the artifact:
-
-**Gradle**
-
 ```kotlin
-repositories {
-    mavenLocal()
-    mavenCentral()
-}
-dependencies {
-    implementation("finance.clarian:clarian-sdk:0.4.1")
-}
+// build.gradle.kts
+repositories { mavenLocal() }
+dependencies { implementation("finance.clarian:clarian-sdk:1.0.0") }
 ```
 
-**Maven**
-
-```xml
-<dependency>
-  <groupId>finance.clarian</groupId>
-  <artifactId>clarian-sdk</artifactId>
-  <version>0.4.1</version>
-</dependency>
-```
-
-Alternatively, [JitPack](https://jitpack.io) can build from the GitHub monorepo subdirectory if you point it at this repository and the `java/` path (configure the build root / subdirectory per JitPack docs).
-
-## Quickstart
+## Quick start
 
 ```java
 import finance.clarian.sdk.ClarianClient;
-import finance.clarian.sdk.ClarianException;
 
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+ClarianClient clarian = ClarianClient.builder()
+        .apiKey(System.getenv("CLARIAN_API_KEY"))        // cl_test_sk_… (sandbox) or cl_live_sk_… (live)
+        .workspaceId(System.getenv("CLARIAN_WORKSPACE_ID"))
+        .build();
 
-public class Example {
-    public static void main(String[] args) {
-        ClarianClient client = new ClarianClient(
-                System.getenv("CLARIAN_API_KEY"),      // cl_live_sk_... or cl_test_sk_...
-                System.getenv("CLARIAN_WORKSPACE_ID")  // workspace UUID
-        );
-        // cl_test_sk_ -> sandbox; cl_live_sk_ (and any other prefix) -> production/live.
-        // Override with ClarianClient.builder().baseUrl(...).timeout(...).build();
-
-        client.ping();
-
-        Map<String, Object> chargeParams = new LinkedHashMap<>();
-        chargeParams.put("amount", 250.00);
-        chargeParams.put("payer", Map.of(
-                "name", "Maria Silva",
-                "document_number", "12345678900"
-        ));
-        chargeParams.put("description", "Order #1234");
-        Map<String, Object> charge = client.cashIn.create(chargeParams, "order-1234");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> order = (Map<String, Object>) charge.get("order");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> pix = (Map<String, Object>) order.get("pix");
-        System.out.println(pix.get("copy_paste"));
-
-        Map<String, Object> payout = client.cashOut.create(
-                Map.of("amount", 100.00),
-                "withdrawal-2026-07-01-001"
-        );
-        @SuppressWarnings("unchecked")
-        Map<String, Object> outOrder = (Map<String, Object>) payout.get("order");
-        System.out.println(outOrder.get("id") + " " + outOrder.get("status"));
-
-        // Optional: preview a PIX key owner before paying out.
-        Map<String, Object> info = client.cashOut.dictCheck("maria@example.com", "EMAIL");
-
-        List<Map<String, Object>> balances = client.balances.list();
-    }
-}
+clarian.ping();
+List<Map<String, Object>> balances = clarian.balances.list();
 ```
 
-Auth headers (set automatically): `Authorization: Bearer <key>` and `X-Workspace-Id: <uuid>`.
+The key prefix picks the environment: `cl_test_sk_` calls `/v1/test`, `cl_live_sk_` calls `/v1/live`. Override the origin with `.baseUrl("http://localhost:3000")`. Create keys in the dashboard under Negócios > API (needs 2FA). Give each key only the permissions it uses.
 
-## Environments
+Requests take a `Map` with the field names of the OpenAPI reference; objects come back as `Map<String, Object>` and lists as `List<Map<String, Object>>`.
 
-| Key prefix       | Base URL                                                    |
-|------------------|-------------------------------------------------------------|
-| `cl_test_sk_…`   | `https://api.clarian.finance/functions/v1/api-gateway/test` |
-| `cl_live_sk_…`   | `https://api.clarian.finance/functions/v1/api-gateway/live` |
-| any other prefix | **live** (same as `cl_live_sk_…`); not rejected             |
+## Amounts
 
-Only the `cl_test_sk_` prefix selects sandbox. Unknown prefixes default to live so a mis-typed key can hit production; pass `baseUrl` when you need an explicit host.
-
-## Error handling
-
-Non-2xx responses throw `ClarianException` with `status`, `code` (JSON `error` when present), `message` (via `getErrorMessage()`), and `meta`. The exception text truncates the raw body to 500 characters.
+Every amount is an integer in minor units, sent and returned as a string. BRL has scale 2 (R$ 10,00 is `"1000"`), USDT and USDC scale 6 (1 USDT is `"1000000"`). Pass a `String`, `int`/`long` or `BigInteger`; a `double`, `float` or `BigDecimal` is rejected before the request is sent. Balances carry their `scale`.
 
 ```java
-try {
-    client.cashOut.create(Map.of("amount", 100.00), "payout-inv-42");
-} catch (ClarianException e) {
-    System.err.println(e.getStatus() + " " + e.getCode() + " " + e.getErrorMessage() + " " + e.getMeta());
-}
+Map<String, Object> brl = balances.stream()
+        .filter(b -> "BRL".equals(b.get("currency")) && "available".equals(b.get("kind")))
+        .findFirst().orElseThrow();
+new BigInteger((String) brl.get("balance_minor")); // 1250050, scale 2 → R$ 12.500,50
 ```
 
-## Verifying webhooks
+## Cash-in (receive PIX)
 
-Deliveries are signed with **HMAC-SHA256** (hex) over `` `{X-Clarian-Timestamp}.{rawBody}` `` using the full `whsec_…` secret (prefix included; do not strip it). Reject timestamps older than **5 minutes** (replay protection).
+```java
+var charge = clarian.pix.payins.create(Map.of("amount_minor", "25000", "currency", "BRL"), "order-981");
+charge.get("pix_qr_code"); // copia-e-cola for the payer
+// later, or from the webhook:
+var paid = clarian.pix.payins.retrieve((String) charge.get("id"));
+```
+
+The QR is valid for 30 minutes. The balance moves from `pending` to `available` when the PIX settles.
+
+## Cash-out (send PIX)
+
+```java
+var fee = clarian.pix.payouts.fee(Map.of("amount_minor", "10000")); // fee_minor, debit_minor
+var payout = clarian.pix.payouts.create(
+        Map.of("amount_minor", "10000", "currency", "BRL", "pix_key", "settlement@yourcompany.com"),
+        "withdrawal-2026-10-10-001");
+```
+
+Over the API, the money goes to your workspace's registered settlement key. Register it once in the dashboard; until then the call answers 403 `settlement_key_required`. Amount plus fee leave `available` at once and return if the PIX fails.
+
+## Quote and convert
+
+The direction is always `base_currency` → `quote_currency`: you pay `base_amount_minor` of the base and receive the quote currency.
+
+```java
+// Buy USDT with R$ 500,00
+var quote = clarian.conversions.quote(Map.of("base_currency", "BRL", "quote_currency", "USDT", "base_amount_minor", "50000"));
+quote.get("quote_amount_minor"); // USDT you receive (scale 6), after fees
+quote.get("expires_at");         // execute before this
+
+var result = clarian.conversions.execute((String) quote.get("id"));
+result.get("ledger");            // settled amounts; absent while status is "processing"
+```
+
+A quote converts once: a second execute is 409 `quote_not_open`, an expired one 410 `quote_expired`. To sell USDT for BRL, swap the currencies.
+
+## Wallets and crypto
+
+```java
+var wallets = clarian.wallets.list();
+clarian.wallets.balance((String) wallets.get(0).get("id"));
+clarian.crypto.networks();
+// API keys send only to wallets registered in the dashboard whitelist (403 destination_not_whitelisted).
+clarian.crypto.send(Map.of("amount_minor", "5000000", "currency", "USDT", "network", "polygon", "to_address", "0x…"), "send-17");
+```
+
+## Customers, KYC and sub-accounts
+
+```java
+var customer = clarian.customers.create(Map.of("kind", "person", "display_name", "Maria Silva",
+        "document_type", "cpf", "document_number", "52998224725"));
+clarian.kyc.create(Map.of("party_id", customer.get("id")));
+
+var sub = clarian.subaccounts.create(Map.of("display_name", "Store 12"));
+ClarianClient store = clarian.forSubaccount((String) sub.get("id")); // every call acts on that sub-account
+store.pix.payins.create(Map.of("amount_minor", "1000"), "store12-order-1");
+```
+
+## Payment links
+
+```java
+var link = clarian.paymentLinks.create(Map.of("amount_minor", "4990", "currency", "BRL", "description", "Plano mensal"));
+var page = clarian.paymentLinks.payments(Map.of("limit", 50)); // {items, next_cursor}
+```
+
+## Webhooks
+
+```java
+var hook = clarian.webhooks.create(Map.of("url", "https://example.com/clarian",
+        "events", List.of("payment.completed", "payment.failed")));
+hook.get("secret"); // shown only here: store it
+clarian.webhooks.test((String) hook.get("id")); // sandbox key: sends a signed test.ping
+```
+
+Verify every delivery on the raw body before trusting it:
 
 ```java
 import finance.clarian.sdk.Webhooks;
 
-// In your HTTP handler, use the exact raw body bytes (do not re-serialize JSON).
-byte[] rawBody = /* request body bytes */;
-Map<String, String> headers = /* request headers */;
-String secret = System.getenv("CLARIAN_WEBHOOK_SECRET"); // whsec_...
+// rawBody: the exact request body as received; headers: name → value (case-insensitive)
+Webhooks.Event event = Webhooks.constructEvent(rawBody, headers, System.getenv("CLARIAN_WEBHOOK_SECRET"));
 
-Webhooks.Headers h = Webhooks.extractHeaders(headers);
-if (!Webhooks.verifySignature(rawBody, h.timestamp(), h.signature(), secret, Webhooks.DEFAULT_TOLERANCE_SECONDS)) {
-    // reject: 401
-    return;
+if (event.type().equals("payment.completed")) {
+    Object paymentId = event.data().get("payment_id");
 }
-// process JSON body...
 ```
 
-For local handler tests, sign a payload the same way the server does:
+The signature is HMAC-SHA256 of `<x-clarian-timestamp>.<rawBody>`; deliveries older than 5 minutes or with an unparseable timestamp are refused (`IllegalArgumentException`). Dedupe on `event.id()` and answer 2xx fast. Failed deliveries are listed in `webhooks.deliveries()`. `webhooks.test()` and `webhooks.resend(id)` work with a sandbox key only; in live, reconcile missed events with `transactions.list()`.
+
+## Sandbox
+
+With a `cl_test_sk_` key nothing reaches a bank or chain. Settle or fail anything pending:
 
 ```java
-String sig = Webhooks.signPayload(secret, timestamp, rawBody);
+clarian.pix.payins.simulate(chargeId);                                          // completed
+clarian.pix.payouts.simulate(payoutId, Map.of("status", "failed", "reason", "test"));
+clarian.crypto.simulate(sendId);
 ```
 
-Create a subscription (secret shown **once**):
+## Errors, retries and idempotency
+
+Non-2xx replies throw `ClarianException` (unchecked) with `status()` and the API's stable `code()`:
 
 ```java
-Map<String, Object> sub = client.webhooks.create(Map.of(
-        "url", "https://example.com/webhooks/clarian",
-        "events", List.of("pix_payin.completed", "pix_payout.completed")
-));
-// store sub.get("secret") immediately; it is never returned again
-System.out.println(sub.get("id") + " " + sub.get("secret"));
+try {
+    clarian.pix.payouts.create(Map.of("amount_minor", "10000", "pix_key", "x"), "w-1");
+} catch (ClarianException e) {
+    if (e.code().equals("insufficient_balance")) { /* … */ }
+}
 ```
 
-## Sandbox testing
+Money-moving creates (`pix.payins.create`, `pix.payouts.create`, `crypto.send`, `paymentLinks.charge`, `checkout.pay`) require an idempotency key: a missing one throws `IllegalArgumentException` before any request, and retrying with the same key returns the same payment and never pays twice. The SDK retries 429/502/503/504 and network errors up to `maxRetries` (default 2) and honors `Retry-After`, but only for reads, deletes and calls that carry an idempotency key; `conversions.execute` is never retried. The API allows 120 requests per minute per key.
 
-Sandbox helpers live on `client.sandbox`. They require a `cl_test_sk_…` key and throw `IllegalStateException` for live keys **before** any HTTP call. Outside the test environment the gateway returns `404 {error:"sandbox_only"}`.
+## Not on the API
 
-```java
-// Advance a pending cash-in (empty/null status -> completed).
-Map<String, Object> order = client.sandbox.simulateCashIn(orderId, "completed");
-// status: "completed" | "expired" | "failed"
+Actions that need a person's own second factor stay in the dashboard: inviting or changing team members, voting on approvals, creating or rotating API keys, saving payout accounts and whitelist entries, and changing workspace settings. Their read endpoints are in the SDK.
 
-// Advance a cash-out: "completed" | "failed"
-client.sandbox.simulateCashOut(payoutOrderId, "failed");
+## Reference
 
-// Enqueue a sample webhook for a subscription.
-Map<String, Object> result = client.sandbox.sendWebhookEvent(
-        subscriptionId,
-        SandboxService.EVENT_PIX_PAYIN_COMPLETED
-);
-String newId = client.sandbox.resendWebhookDelivery((String) result.get("delivery_id"));
-```
+| Area | Methods |
+|---|---|
+| `balances` | `list` |
+| `pix.payins` | `create`, `retrieve`, `simulate` |
+| `pix.payouts` | `create`, `retrieve`, `fee`, `lookup`, `simulate`, `listAccounts` |
+| `conversions` | `quote`, `execute`, `prices` |
+| `wallets` | `list`, `create`, `retrieve`, `balance`, `transactions` |
+| `crypto` | `send`, `simulate`, `networks` |
+| `transactions` | `list`, `retrieve`, `statement` |
+| `customers` | `list`, `create`, `retrieve`, `update` |
+| `kyc` | `list`, `create`, `retrieve`, `listRfi`, `answerRfi` |
+| `webhooks` | `list`, `create`, `retrieve`, `update`, `delete`, `test`, `deliveries`, `resend` |
+| `paymentLinks` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replaceSplits`, `charge` |
+| `checkout` | `retrieve`, `pay` |
+| `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions` |
+| `whitelist`, `bankAccounts`, `apiKeys`, `settings`, `notifications`, `team`, `approvals` | read |
+| `workflows`, `treasury` | `list`, `create` (+ `workflows.runs`) |
 
-### Magic PIX keys
-
-| Constant / key              | Sandbox payout behavior                                      |
-|-----------------------------|--------------------------------------------------------------|
-| `SANDBOX_FAIL_PIX_KEY`      | `fail@sandbox.clarian` (fails + refund)                      |
-| `SANDBOX_PENDING_PIX_KEY`   | `pending@sandbox.clarian` (stays pending until simulated)    |
-
-```java
-client.cashOut.create(
-        Map.of("amount", 10.00, "pix_key", SandboxService.SANDBOX_FAIL_PIX_KEY),
-        "payout-fail-1"
-);
-```
-
-Sample event type constants: `EVENT_PIX_PAYIN_CREATED`, `EVENT_PIX_PAYIN_COMPLETED`, `EVENT_PIX_PAYIN_EXPIRED`, `EVENT_PIX_PAYOUT_CREATED`, `EVENT_PIX_PAYOUT_COMPLETED`, `EVENT_PIX_PAYOUT_FAILED`, `EVENT_CHECKOUT_PAID`.
-
-## API surface
-
-| Method | Path | Client |
-|--------|------|--------|
-| `GET` | `/ping` | `client.ping()` |
-| `POST` | `/cash-in/pix` | `client.cashIn.create(params, idempotencyKey)` |
-| `GET` | `/cash-in/{id}` | `client.cashIn.retrieve(id)` |
-| `POST` | `/pix/payouts/dict` | `client.cashOut.dictCheck(pixKey, keyType)` |
-| `POST` | `/cash-out/pix` | `client.cashOut.create(params, idempotencyKey)` |
-| `GET` | `/cash-out/{id}` | `client.cashOut.retrieve(id)` |
-| `GET` | `/account/balances` | `client.balances.list()` |
-| `GET` | `/transactions` | `client.transactions.list(type, status, limit)` |
-| `GET` | `/transactions/{id}` | `client.transactions.retrieve(id)` |
-| `GET` | `/wallets` | `client.wallets.list(network)` |
-| `GET` | `/wallets/{id}/balance` | `client.wallets.retrieveBalance(id)` |
-| | webhooks CRUD | `client.webhooks.create/list/update/delete` |
-| | verify delivery | `Webhooks.verifySignature` / `extractHeaders` / `signPayload` |
-| `POST` | `/pix/payins/{id}/simulate` | `client.sandbox.simulateCashIn(id, status)` |
-| `POST` | `/pix/payouts/{id}/simulate` | `client.sandbox.simulateCashOut(id, status)` |
-| `POST` | `/webhooks/{id}/test` | `client.sandbox.sendWebhookEvent(id, eventType)` |
-| `POST` | `/webhooks/deliveries/{id}/resend` | `client.sandbox.resendWebhookDelivery(id)` |
+Field names follow the OpenAPI reference (`../openapi.json`, also at `https://app.clarian.finance/openapi.json`).
 
 ## Development
 
 ```bash
-cd java
-gradle test --console=plain
-gradle publishToMavenLocal
+gradle test
+CLARIAN_API_KEY=cl_test_sk_… CLARIAN_WORKSPACE_ID=… CLARIAN_BASE_URL=http://localhost:3000 gradle e2e
 ```

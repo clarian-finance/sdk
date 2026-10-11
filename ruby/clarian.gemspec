@@ -9,7 +9,7 @@ Gem::Specification.new do |spec|
   spec.email         = ["contact@clarian.finance"]
 
   spec.summary       = "Official Ruby SDK for the Clarian Finance API"
-  spec.description   = "PIX cash-in/cash-out, balances, wallets, transactions, and webhooks. Pure stdlib runtime."
+  spec.description   = "Clarian API v2: PIX, conversions, wallets, crypto, customers, KYC, payment links, sub-accounts and webhooks. Pure stdlib runtime."
   spec.homepage      = "https://github.com/clarian-finance/sdk"
   spec.license       = "MIT"
   spec.required_ruby_version = ">= 3.0.0"

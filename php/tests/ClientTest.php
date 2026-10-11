@@ -2,332 +2,180 @@
 
 declare(strict_types=1);
 
-namespace Clarian\Tests;
-
-use Clarian\ClarianException;
-use Clarian\Client;
+use Clarian\Clarian;
+use Clarian\ClarianError;
+use Clarian\HttpTransport;
+use Clarian\TransportException;
 use PHPUnit\Framework\TestCase;
+
+final class FakeTransport implements HttpTransport
+{
+    /** @var list<array{method: string, url: string, headers: array, body: ?string}> */
+    public array $calls = [];
+    /** @var list<array{0:int,1:string,2:array}|\Throwable> */
+    public array $replies;
+
+    public function __construct(array $replies) { $this->replies = $replies; }
+
+    public function send(string $method, string $url, array $headers, ?string $body, float $timeout): array
+    {
+        $this->calls[] = compact('method', 'url', 'headers', 'body');
+        $r = array_shift($this->replies) ?? [200, '{"data":{}}', []];
+        if ($r instanceof \Throwable) {
+            throw $r;
+        }
+        return $r;
+    }
+}
 
 final class ClientTest extends TestCase
 {
-    public function testEnvDetectionTestPrefix(): void
+    public array $slept = [];
+
+    private function client(FakeTransport $t, string $key = 'cl_test_sk_abc'): Clarian
     {
-        $c = new Client('cl_test_sk_abc', 'ws');
-        $this->assertSame(Client::BASE_URL_TEST, $c->baseUrl);
+        return new Clarian($key, 'ws_1', baseUrl: 'http://api.local/', transport: $t, sleep: function (float $s) { $this->slept[] = $s; });
     }
 
-    public function testEnvDetectionLivePrefix(): void
+    private static function ok(mixed $data): array { return [200, json_encode(['data' => $data]), []]; }
+
+    public function testBuildsUrlAndHeadersAndUnwrapsData(): void
     {
-        $c = new Client('cl_live_sk_abc', 'ws');
-        $this->assertSame(Client::BASE_URL_LIVE, $c->baseUrl);
+        $t = new FakeTransport([self::ok([['currency' => 'BRL']])]);
+        $out = $this->client($t)->transactions->list(['limit' => 5, 'before' => null]);
+        $this->assertSame([['currency' => 'BRL']], $out);
+        $c = $t->calls[0];
+        $this->assertSame('GET', $c['method']);
+        $this->assertSame('http://api.local/v1/test/transactions?limit=5', $c['url']);
+        $this->assertSame('Bearer cl_test_sk_abc', $c['headers']['Authorization']);
+        $this->assertSame('ws_1', $c['headers']['X-Workspace-Id']);
+        $this->assertArrayNotHasKey('X-Subaccount-Id', $c['headers']);
+        $this->assertNull($c['body']);
     }
 
-    public function testEnvDetectionUnknownDefaultsLive(): void
+    public function testLiveKeyAndSubaccountAndIdempotencyHeaders(): void
     {
-        $c = new Client('other_key', 'ws');
-        $this->assertSame(Client::BASE_URL_LIVE, $c->baseUrl);
+        $t = new FakeTransport([self::ok(['id' => 'p1'])]);
+        $c = $this->client($t, 'cl_live_sk_x');
+        $this->assertSame('live', $c->environment);
+        $c->forSubaccount('sub 1')->pix->payins->create(['amount_minor' => 10000, 'currency' => 'BRL'], 'k-1');
+        $call = $t->calls[0];
+        $this->assertSame('http://api.local/v1/live/pix/payins', $call['url']);
+        $this->assertSame('sub 1', $call['headers']['X-Subaccount-Id']);
+        $this->assertSame('k-1', $call['headers']['Idempotency-Key']);
+        $this->assertSame('application/json', $call['headers']['Content-Type']);
+        $this->assertSame('{"amount_minor":"10000","currency":"BRL"}', $call['body']);
     }
 
-    public function testBaseUrlOverrideStripsTrailingSlash(): void
+    public function testBigIntegerAmountsAndFloatRejected(): void
     {
-        $c = new Client('cl_test_sk_x', 'ws', 'http://localhost:9999/v1/');
-        $this->assertSame('http://localhost:9999/v1', $c->baseUrl);
+        $t = new FakeTransport([self::ok([])]);
+        $this->client($t)->pix->payouts->fee(['amount_minor' => gmp_init('123456789012345678901234567890')]);
+        $this->assertSame('{"amount_minor":"123456789012345678901234567890"}', $t->calls[0]['body']);
+        $this->expectException(\InvalidArgumentException::class);
+        $this->client($t)->pix->payouts->fee(['amount_minor' => 10.5]);
     }
 
-    public function testAuthHeadersOnEveryCall(): void
+    public function testInvalidKeyRejected(): void
     {
-        $mt = new FakeTransport(static fn () => [200, [
-            'ok' => true,
-            'environment' => 'sandbox',
-            'master_account_id' => 'm1',
-        ]]);
-        $c = new Client('cl_test_sk_key', 'ws-uuid', 'https://mock', null, $mt);
-        $res = $c->ping();
-        $this->assertTrue($res['ok']);
-        $this->assertSame('GET', $mt->last()->method);
-        $this->assertSame('/ping', $mt->last()->path);
-        $this->assertSame('Bearer cl_test_sk_key', $mt->last()->headers['Authorization']);
-        $this->assertSame('ws-uuid', $mt->last()->headers['X-Workspace-Id']);
+        $this->expectException(\InvalidArgumentException::class);
+        new Clarian('sk_nope', 'ws_1');
     }
 
-    public function testCashInCreateSendsIdempotencyAndWorkspace(): void
+    public function testErrorMapping(): void
     {
-        $mt = new FakeTransport(static fn () => [201, [
-            'ok' => true,
-            'environment' => 'sandbox',
-            'order' => [
-                'id' => 'ord_1',
-                'status' => 'pending',
-                'amount' => 19.50,
-                'currency' => 'BRL',
-                'pix' => ['copy_paste' => 'brcode'],
-            ],
-        ]]);
-        $c = new Client('cl_test_sk_x', 'ws-uuid', 'https://mock', null, $mt);
-        $res = $c->cashIn->create([
-            'amount' => 19.50,
-            'payer' => ['name' => 'Ana', 'document_number' => '52998224725'],
-        ], 'pay-ext-1');
-        $this->assertSame('ord_1', $res['order']['id']);
-        $this->assertSame('POST', $mt->last()->method);
-        $this->assertSame('/cash-in/pix', $mt->last()->path);
-        $this->assertSame('pay-ext-1', $mt->last()->headers['Idempotency-Key']);
-        $this->assertSame('ws-uuid', $mt->last()->headers['X-Workspace-Id']);
-        $sent = json_decode((string) $mt->last()->body, true);
-        $this->assertSame(19.50, $sent['amount']);
-        $this->assertSame('Ana', $sent['payer']['name']);
-    }
-
-    public function testCashOutCreateSendsIdempotency(): void
-    {
-        $mt = new FakeTransport(static fn () => [201, [
-            'ok' => true,
-            'order' => ['id' => 'out_9', 'status' => 'processing'],
-        ]]);
-        $c = new Client('cl_test_sk_x', 'ws', 'https://mock', null, $mt);
-        $c->cashOut->create([
-            'amount' => 10.00,
-            'pix_key' => 'abc',
-            'pix_key_type' => 'EVP',
-        ], 'repasse-1');
-        $this->assertSame('repasse-1', $mt->last()->headers['Idempotency-Key']);
-        $this->assertSame('/cash-out/pix', $mt->last()->path);
-    }
-
-    public function testGetDoesNotSendIdempotencyKey(): void
-    {
-        $mt = new FakeTransport(static fn () => [200, [
-            'ok' => true,
-            'order' => ['id' => 'x', 'status' => 'pending'],
-        ]]);
-        $c = new Client('cl_test_sk_x', 'ws', 'https://mock', null, $mt);
-        $c->cashIn->retrieve('x');
-        $this->assertArrayNotHasKey('Idempotency-Key', $mt->last()->headers);
-    }
-
-    public function testCashInRetrieveHappyPath(): void
-    {
-        $mt = new FakeTransport(static fn () => [200, [
-            'ok' => true,
-            'order' => ['id' => 'ord_paid', 'status' => 'completed'],
-        ]]);
-        $c = new Client('cl_live_sk_x', 'ws', 'https://mock', null, $mt);
-        $res = $c->cashIn->retrieve('ord_paid');
-        $this->assertSame('completed', $res['order']['status']);
-        $this->assertSame('/cash-in/ord_paid', $mt->last()->path);
-    }
-
-    public function testCashOutRetrieveHappyPath(): void
-    {
-        $mt = new FakeTransport(static fn () => [200, [
-            'ok' => true,
-            'order' => ['id' => 'out_1', 'status' => 'completed'],
-        ]]);
-        $c = new Client('cl_test_sk_x', 'ws', 'https://mock', null, $mt);
-        $res = $c->cashOut->retrieve('out_1');
-        $this->assertSame('out_1', $res['order']['id']);
-        $this->assertSame('/cash-out/out_1', $mt->last()->path);
-    }
-
-    public function testCashOutDictCheckHappyPath(): void
-    {
-        $mt = new FakeTransport(static fn () => [200, [
-            'ok' => true,
-            'dict' => ['name' => 'Maria', 'keyType' => 'EMAIL'],
-        ]]);
-        $c = new Client('cl_test_sk_x', 'ws', 'https://mock', null, $mt);
-        $res = $c->cashOut->dictCheck('maria@example.com', 'EMAIL');
-        $this->assertSame('Maria', $res['dict']['name']);
-        $this->assertSame('POST', $mt->last()->method);
-        $this->assertSame('/pix/payouts/dict', $mt->last()->path);
-        $sent = json_decode((string) $mt->last()->body, true);
-        $this->assertSame('maria@example.com', $sent['pix_key']);
-        $this->assertSame('EMAIL', $sent['key_type']);
-    }
-
-    public function testBalancesListHappyPath(): void
-    {
-        $mt = new FakeTransport(static fn () => [200, [
-            'ok' => true,
-            'balances' => [[
-                'currency' => 'BRL',
-                'available' => 100.50,
-                'pending' => 0,
-                'locked' => 0,
-            ]],
-        ]]);
-        $c = new Client('cl_test_sk_x', 'ws', 'https://mock', null, $mt);
-        $bals = $c->balances->list();
-        $this->assertCount(1, $bals);
-        $this->assertSame('BRL', $bals[0]['currency']);
-        $this->assertSame('/account/balances', $mt->last()->path);
-    }
-
-    public function testTransactionsListAndRetrieveHappyPath(): void
-    {
-        $mt = new FakeTransport(function (RecordedRequest $req) {
-            if (str_starts_with($req->path, '/transactions?') || $req->path === '/transactions') {
-                $this->assertStringContainsString('type=pix_in', $req->path);
-                $this->assertStringContainsString('limit=20', $req->path);
-
-                return [200, [
-                    'transactions' => [[
-                        'id' => 'tx1',
-                        'type' => 'pix_in',
-                        'status' => 'completed',
-                        'amount' => 10,
-                        'fee' => 0,
-                        'currency' => 'BRL',
-                    ]],
-                ]];
-            }
-            if ($req->path === '/transactions/tx-99') {
-                return [200, [
-                    'transaction' => [
-                        'id' => 'tx-99',
-                        'type' => 'pix_in',
-                        'status' => 'completed',
-                        'amount' => 10,
-                        'fee' => 0.1,
-                        'currency' => 'BRL',
-                    ],
-                ]];
-            }
-            $this->fail('unexpected path ' . $req->path);
-        });
-        $c = new Client('cl_test_sk_x', 'ws', 'https://mock', null, $mt);
-        $lst = $c->transactions->list('pix_in', null, 20);
-        $this->assertSame('tx1', $lst[0]['id']);
-        $tx = $c->transactions->retrieve('tx-99');
-        $this->assertSame('tx-99', $tx['id']);
-    }
-
-    public function testWalletsListAndBalanceHappyPath(): void
-    {
-        $mt = new FakeTransport(function (RecordedRequest $req) {
-            if ($req->path === '/wallets' || str_starts_with($req->path, '/wallets?')) {
-                return [200, [
-                    'ok' => true,
-                    'wallets' => [[
-                        'id' => 'w1',
-                        'network' => 'polygon',
-                        'address' => '0xabc',
-                    ]],
-                ]];
-            }
-            if ($req->path === '/wallets/w1/balance') {
-                return [200, [
-                    'wallet_id' => 'w1',
-                    'network' => 'polygon',
-                    'address' => '0xabc',
-                    'balances' => [['currency' => 'USDT', 'amount' => '1.5']],
-                ]];
-            }
-            $this->fail('unexpected path ' . $req->path);
-        });
-        $c = new Client('cl_test_sk_x', 'ws', 'https://mock', null, $mt);
-        $wallets = $c->wallets->list();
-        $this->assertSame('w1', $wallets[0]['id']);
-        $bal = $c->wallets->retrieveBalance('w1');
-        $this->assertSame('w1', $bal['wallet_id']);
-        $this->assertSame('USDT', $bal['balances'][0]['currency']);
-    }
-
-    public function testWebhooksCrudHappyPath(): void
-    {
-        $mt = new FakeTransport(function (RecordedRequest $req) {
-            if ($req->method === 'POST' && $req->path === '/webhooks') {
-                return [201, [
-                    'ok' => true,
-                    'subscription' => [
-                        'id' => 'wh1',
-                        'url' => 'https://ex.com',
-                        'events' => ['pix_payin.completed'],
-                        'is_active' => true,
-                    ],
-                    'secret' => 'whsec_abc',
-                ]];
-            }
-            if ($req->method === 'GET' && $req->path === '/webhooks') {
-                return [200, [
-                    'subscriptions' => [[
-                        'id' => 'wh1',
-                        'url' => 'https://ex.com',
-                        'events' => ['pix_payin.completed'],
-                        'is_active' => true,
-                    ]],
-                ]];
-            }
-            if ($req->method === 'PATCH' && $req->path === '/webhooks/wh1') {
-                return [200, [
-                    'subscription' => [
-                        'id' => 'wh1',
-                        'url' => 'https://ex.com/v2',
-                        'events' => ['pix_payin.completed'],
-                        'is_active' => false,
-                    ],
-                ]];
-            }
-            if ($req->method === 'DELETE' && $req->path === '/webhooks/wh1') {
-                return [200, ['ok' => true]];
-            }
-            $this->fail('unexpected ' . $req->method . ' ' . $req->path);
-        });
-        $c = new Client('cl_test_sk_x', 'ws', 'https://mock', null, $mt);
-        $created = $c->webhooks->create([
-            'url' => 'https://ex.com',
-            'events' => ['pix_payin.completed'],
-        ]);
-        $this->assertSame('whsec_abc', $created['secret']);
-        $this->assertSame('wh1', $created['id']);
-        $subs = $c->webhooks->list();
-        $this->assertCount(1, $subs);
-        $upd = $c->webhooks->update('wh1', [
-            'url' => 'https://ex.com/v2',
-            'events' => ['pix_payin.completed'],
-            'is_active' => false,
-        ]);
-        $this->assertFalse($upd['is_active']);
-        $c->webhooks->delete('wh1');
-        $this->assertSame('DELETE', $mt->calls[array_key_last($mt->calls)]->method);
-    }
-
-    public function testErrorJsonCodeAndMeta(): void
-    {
-        $mt = new FakeTransport(static fn () => [402, [
-            'error' => 'insufficient_balance',
-            'detail' => 'saldo insuficiente',
-            'available' => 10,
-            'requested' => 100,
-        ]]);
-        $c = new Client('cl_test_sk_x', 'ws', 'https://mock', null, $mt);
+        $t = new FakeTransport([[402, '{"error":"insufficient_balance","message":"Not enough","needed":"5"}', []]]);
         try {
-            $c->cashOut->create(['amount' => 100], 'idem');
-            $this->fail('expected ClarianException');
-        } catch (ClarianException $err) {
-            $this->assertSame(402, $err->status);
-            $this->assertSame('insufficient_balance', $err->code);
-            $this->assertSame('saldo insuficiente', $err->message);
-            $this->assertSame(10, $err->meta['available']);
-            $this->assertStringContainsString('insufficient_balance', $err->getMessage());
+            $this->client($t)->balances->list();
+            $this->fail('expected ClarianError');
+        } catch (ClarianError $e) {
+            $this->assertSame(402, $e->status);
+            $this->assertSame('insufficient_balance', $e->errorCode);
+            $this->assertSame('Not enough', $e->getMessage());
+            $this->assertSame(['needed' => '5'], $e->meta);
         }
     }
 
-    public function testBodyTruncationInMessage(): void
+    public function testNonJsonError(): void
     {
-        $longBody = str_repeat('x', 600);
-        $mt = new FakeTransport(static fn () => [429, $longBody]);
-        $c = new Client('cl_test_sk_x', 'ws', 'https://mock', null, $mt);
+        $t = new FakeTransport([[400, '<html>', []]]);
         try {
-            $c->ping();
-            $this->fail('expected ClarianException');
-        } catch (ClarianException $err) {
-            $this->assertSame(429, $err->status);
-            $this->assertSame('', $err->code);
-            $this->assertSame(500, strlen($err->message));
-            $this->assertLessThanOrEqual(500 + strlen('HTTP 429: '), strlen($err->getMessage()));
-            $this->assertStringNotContainsString(str_repeat('x', 600), $err->getMessage());
-            $this->assertSame($longBody, $err->body);
+            $this->client($t)->ping();
+            $this->fail('expected ClarianError');
+        } catch (ClarianError $e) {
+            $this->assertSame('invalid_json_response', $e->errorCode);
         }
+    }
+
+    public function testGetRetriedHonoringRetryAfter(): void
+    {
+        $t = new FakeTransport([[503, '', []], [429, '', ['retry-after' => '2']], self::ok(['pong' => true])]);
+        $this->assertSame(['pong' => true], $this->client($t)->ping());
+        $this->assertCount(3, $t->calls);
+        $this->assertSame(2.0, $this->slept[1]);
+    }
+
+    public function testGetRetriesExhausted(): void
+    {
+        $t = new FakeTransport([new TransportException('down'), [502, '', []], [502, '{"error":"bad_gateway"}', []]]);
+        try {
+            $this->client($t)->balances->list();
+            $this->fail('expected ClarianError');
+        } catch (ClarianError $e) {
+            $this->assertSame(502, $e->status);
+        }
+        $this->assertCount(3, $t->calls);
+    }
+
+    public function testPostWithoutKeyNotRetried(): void
+    {
+        $t = new FakeTransport([[503, '{"error":"unavailable"}', []]]);
+        $this->expectException(ClarianError::class);
+        try {
+            $this->client($t)->customers->create(['display_name' => 'x']);
+        } finally {
+            $this->assertCount(1, $t->calls);
+        }
+    }
+
+    public function testExecuteNeverRetried(): void
+    {
+        $t = new FakeTransport([new TransportException('lost')]);
+        $this->expectException(TransportException::class);
+        try {
+            $this->client($t)->conversions->execute('q1');
+        } finally {
+            $this->assertCount(1, $t->calls);
+            $this->assertArrayNotHasKey('Idempotency-Key', $t->calls[0]['headers']);
+        }
+    }
+
+    public function testPostWithKeyRetried(): void
+    {
+        $t = new FakeTransport([[504, '', []], self::ok(['id' => 'p1'])]);
+        $this->assertSame(['id' => 'p1'], $this->client($t)->crypto->send(['amount_minor' => '1'], 'k'));
+        $this->assertCount(2, $t->calls);
+    }
+
+    public function testIdempotencyKeyRequired(): void
+    {
+        $t = new FakeTransport([]);
+        $c = $this->client($t);
+        $calls = [
+            fn () => $c->pix->payins->create(['amount_minor' => 1], ''),
+            fn () => $c->pix->payouts->create(['amount_minor' => 1], ''),
+            fn () => $c->crypto->send(['amount_minor' => 1], ''),
+            fn () => $c->paymentLinks->charge('l1', [], ''),
+            fn () => $c->checkout->pay('s1', [], ''),
+        ];
+        foreach ($calls as $call) {
+            try {
+                $call();
+                $this->fail('expected InvalidArgumentException');
+            } catch (\InvalidArgumentException $e) {
+                $this->assertStringContainsString('idempotencyKey is required', $e->getMessage());
+            }
+        }
+        $this->assertCount(0, $t->calls);
     }
 }

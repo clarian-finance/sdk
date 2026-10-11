@@ -1,11 +1,15 @@
+// Package clarian is the Go SDK for the Clarian API v2.
 package clarian
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math/big"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,277 +17,330 @@ import (
 	"time"
 )
 
-// Production and sandbox gateway bases (api.clarian.finance).
-const (
-	BaseURLLive = "https://api.clarian.finance/functions/v1/api-gateway/live"
-	BaseURLTest = "https://api.clarian.finance/functions/v1/api-gateway/test"
-)
+// DefaultBaseURL is the API origin; requests go to <origin>/v1/{live|test}/<path>.
+const DefaultBaseURL = "https://api.clarian.finance"
 
-// Client is the Clarian Finance API client.
+// Row is a JSON object as returned by the API. Numbers decode as json.Number.
+// ponytail: map rows instead of 688 lines of hand-written structs; openapi.json documents the fields.
+type Row = map[string]any
+
+// Params is an optional query string; empty values are dropped.
+type Params map[string]string
+
+// ErrIdempotencyKeyRequired is returned by money-moving creates called with an empty key.
+var ErrIdempotencyKeyRequired = errors.New("idempotencyKey is required: reuse the same key to retry safely")
+
+// Error is every non-2xx reply. Code is the API's stable "error" string, e.g. insufficient_balance.
+type Error struct {
+	Status  int
+	Code    string
+	Message string
+	Meta    Row
+}
+
+func (e *Error) Error() string { return fmt.Sprintf("clarian: %d %s: %s", e.Status, e.Code, e.Message) }
+
+// Client calls the Clarian API. Build it with New.
 type Client struct {
-	apiKey      string
-	workspaceID string
-	baseURL     string
-	http        *http.Client
+	apiKey, workspaceID, subaccountID, baseURL, env string
+	http                                            *http.Client
+	maxRetries                                      int
 
-	CashIn       *CashInService
-	CashOut      *CashOutService
-	Balances     *BalancesService
-	Transactions *TransactionsService
-	Webhooks     *WebhooksService
-	Sandbox      *SandboxService
+	Balances      *Balances
+	Wallets       *Wallets
+	Transactions  *Transactions
+	Pix           *Pix
+	Conversions   *Conversions
+	Crypto        *Crypto
+	Customers     *Customers
+	Kyc           *Kyc
+	Whitelist     *Whitelist
+	BankAccounts  *BankAccounts
+	Webhooks      *Webhooks
+	PaymentLinks  *PaymentLinks
+	Checkout      *Checkout
+	Subaccounts   *Subaccounts
+	APIKeys       *APIKeys
+	Settings      *Settings
+	Notifications *Notifications
+	Team          *Team
+	Workflows     *Workflows
+	Approvals     *Approvals
+	Treasury      *Treasury
 }
 
 // Option configures a Client.
 type Option func(*Client)
 
-// WithBaseURL overrides the environment-inferred gateway URL.
-func WithBaseURL(baseURL string) Option {
-	return func(c *Client) {
-		c.baseURL = strings.TrimRight(baseURL, "/")
+// WithBaseURL overrides the API origin (e.g. http://localhost:3000).
+func WithBaseURL(u string) Option { return func(c *Client) { c.baseURL = strings.TrimRight(u, "/") } }
+
+// WithHTTPClient sets the HTTP client (timeouts, proxies, tests). Default timeout 30s.
+func WithHTTPClient(h *http.Client) Option { return func(c *Client) { c.http = h } }
+
+// WithMaxRetries sets retries for 429/502/503/504 and network errors. Default 2.
+func WithMaxRetries(n int) Option { return func(c *Client) { c.maxRetries = n } }
+
+// WithSubaccount acts on one child workspace (sends X-Subaccount-Id).
+func WithSubaccount(id string) Option { return func(c *Client) { c.subaccountID = id } }
+
+// New builds a client. The key prefix picks the environment: cl_test_sk_ -> /v1/test, cl_live_sk_ -> /v1/live.
+func New(apiKey, workspaceID string, opts ...Option) (*Client, error) {
+	c := &Client{apiKey: apiKey, workspaceID: workspaceID, baseURL: DefaultBaseURL,
+		http: &http.Client{Timeout: 30 * time.Second}, maxRetries: 2}
+	switch {
+	case strings.HasPrefix(apiKey, "cl_live_sk_"):
+		c.env = "live"
+	case strings.HasPrefix(apiKey, "cl_test_sk_"):
+		c.env = "test"
+	default:
+		return nil, errors.New("invalid API key format: must start with cl_live_sk_ or cl_test_sk_")
 	}
+	if workspaceID == "" {
+		return nil, errors.New("workspaceID is required")
+	}
+	for _, o := range opts {
+		o(c)
+	}
+	c.Balances = &Balances{c}
+	c.Wallets = &Wallets{c}
+	c.Transactions = &Transactions{c}
+	c.Pix = &Pix{Payins: &PixPayins{c}, Payouts: &PixPayouts{c}}
+	c.Conversions = &Conversions{c}
+	c.Crypto = &Crypto{c}
+	c.Customers = &Customers{c}
+	c.Kyc = &Kyc{c}
+	c.Whitelist = &Whitelist{c}
+	c.BankAccounts = &BankAccounts{c}
+	c.Webhooks = &Webhooks{c}
+	c.PaymentLinks = &PaymentLinks{c}
+	c.Checkout = &Checkout{c}
+	c.Subaccounts = &Subaccounts{c}
+	c.APIKeys = &APIKeys{c}
+	c.Settings = &Settings{c}
+	c.Notifications = &Notifications{c}
+	c.Team = &Team{c}
+	c.Workflows = &Workflows{c}
+	c.Approvals = &Approvals{c}
+	c.Treasury = &Treasury{c}
+	return c, nil
 }
 
-// WithHTTPClient sets a custom HTTP client (timeouts, transport, etc.).
-func WithHTTPClient(hc *http.Client) Option {
-	return func(c *Client) {
-		if hc != nil {
-			c.http = hc
+// Environment is "live" or "sandbox".
+func (c *Client) Environment() string {
+	if c.env == "live" {
+		return "live"
+	}
+	return "sandbox"
+}
+
+// ForSubaccount returns a client that acts on one child workspace.
+func (c *Client) ForSubaccount(id string) *Client {
+	n, _ := New(c.apiKey, c.workspaceID, WithBaseURL(c.baseURL), WithHTTPClient(c.http), WithMaxRetries(c.maxRetries), WithSubaccount(id))
+	return n
+}
+
+// Ping checks the key and workspace.
+func (c *Client) Ping(ctx context.Context) (Row, error) { return get[Row](ctx, c, "ping", nil) }
+
+type reqOpts struct {
+	query   Params
+	body    any
+	idemKey string
+	otp     string
+}
+
+// normalize sends amounts as strings: *big.Int and integers under *_minor keys become strings; floats are refused.
+func normalize(key string, v any) (any, error) {
+	minor := strings.HasSuffix(key, "_minor")
+	switch t := v.(type) {
+	case float32, float64:
+		return nil, fmt.Errorf("clarian: %q is a float; amounts are integer minor units (string, int or *big.Int)", key)
+	case *big.Int:
+		return t.String(), nil
+	case big.Int:
+		return t.String(), nil
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		if minor {
+			return fmt.Sprint(t), nil
+		}
+		return t, nil
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, x := range t {
+			n, err := normalize(k, x)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = n
+		}
+		return out, nil
+	case []any:
+		out := make([]any, len(t))
+		for i, x := range t {
+			n, err := normalize(key, x)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = n
+		}
+		return out, nil
+	}
+	return v, nil
+}
+
+var retryStatus = map[int]bool{429: true, 502: true, 503: true, 504: true}
+
+func backoff(attempt int, retryAfter string) time.Duration {
+	if s, err := strconv.ParseFloat(retryAfter, 64); err == nil && s >= 0 {
+		return time.Duration(min(s, 30) * float64(time.Second))
+	}
+	return time.Duration(rand.Float64() * float64(min(8000, 500<<attempt)) * float64(time.Millisecond))
+}
+
+func (c *Client) do(ctx context.Context, method, path string, o reqOpts, out any) error {
+	u := fmt.Sprintf("%s/v1/%s/%s", c.baseURL, c.env, path)
+	q := url.Values{}
+	for k, v := range o.query {
+		if v != "" {
+			q.Set(k, v)
 		}
 	}
-}
-
-// New builds a Client. The base URL is inferred from the API key prefix
-// (cl_test_sk_ → sandbox, otherwise live) unless WithBaseURL is set.
-func New(apiKey, workspaceID string, opts ...Option) *Client {
-	base := BaseURLLive
-	if strings.HasPrefix(apiKey, "cl_test_sk_") {
-		base = BaseURLTest
+	if len(q) > 0 {
+		u += "?" + q.Encode()
 	}
-	c := &Client{
-		apiKey:      apiKey,
-		workspaceID: workspaceID,
-		baseURL:     base,
-		http:        &http.Client{Timeout: 30 * time.Second},
-	}
-	for _, opt := range opts {
-		opt(c)
-	}
-	c.CashIn = &CashInService{c: c}
-	c.CashOut = &CashOutService{c: c}
-	c.Balances = &BalancesService{c: c}
-	c.Transactions = &TransactionsService{c: c}
-	c.Webhooks = &WebhooksService{c: c}
-	c.Sandbox = &SandboxService{c: c}
-	return c
-}
-
-// Ping checks credentials and returns workspace context.
-func (c *Client) Ping(ctx context.Context) (*PingResponse, error) {
-	var out PingResponse
-	if err := c.do(ctx, http.MethodGet, "/ping", "", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-// do sends an authenticated JSON request. Non-2xx responses become *APIError.
-// Transport and decode failures are wrapped with %w.
-func (c *Client) do(ctx context.Context, method, path, idempotencyKey string, body any, out any) error {
-	var reader io.Reader
-	if body != nil {
-		raw, err := json.Marshal(body)
+	var payload []byte
+	if o.body != nil {
+		b, err := normalize("", o.body)
 		if err != nil {
-			return fmt.Errorf("clarian: marshal body: %w", err)
+			return err
 		}
-		reader = bytes.NewReader(raw)
+		if payload, err = json.Marshal(b); err != nil {
+			return err
+		}
 	}
-
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
+	// Only a request that cannot double-apply is retried: reads, deletes, or a create with an idempotency key.
+	retries := 0
+	if method == http.MethodGet || method == http.MethodDelete || o.idemKey != "" {
+		retries = c.maxRetries
+	}
+	var resp *http.Response
+	for attempt := 0; ; attempt++ {
+		var body io.Reader
+		if payload != nil {
+			body = bytes.NewReader(payload)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, u, body)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("X-Workspace-Id", c.workspaceID)
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if c.subaccountID != "" {
+			req.Header.Set("X-Subaccount-Id", c.subaccountID)
+		}
+		if o.idemKey != "" {
+			req.Header.Set("Idempotency-Key", o.idemKey)
+		}
+		if o.otp != "" {
+			req.Header.Set("X-OTP-Code", o.otp)
+		}
+		resp, err = c.http.Do(req)
+		again := err != nil || retryStatus[resp.StatusCode]
+		if !again || attempt >= retries {
+			if err != nil {
+				return err
+			}
+			break
+		}
+		ra := ""
+		if resp != nil {
+			ra = resp.Header.Get("Retry-After")
+			resp.Body.Close()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff(attempt, ra)):
+		}
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("clarian: new request: %w", err)
+		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("X-Workspace-Id", c.workspaceID)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	var env map[string]json.RawMessage
+	obj := Row{}
+	if len(raw) > 0 {
+		if json.Unmarshal(raw, &env) != nil {
+			if resp.StatusCode >= 300 {
+				return &Error{Status: resp.StatusCode, Code: "invalid_json_response", Message: string(raw[:min(len(raw), 500)])}
+			}
+			return fmt.Errorf("clarian: invalid JSON response: %.200s", raw)
+		}
 	}
-	if idempotencyKey != "" {
-		req.Header.Set("Idempotency-Key", idempotencyKey)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_ = decode(raw, &obj)
+		e := &Error{Status: resp.StatusCode, Code: "unknown_error", Meta: Row{}}
+		for k, v := range obj {
+			switch k {
+			case "error":
+				if s, ok := v.(string); ok {
+					e.Code = s
+				}
+			case "message":
+				e.Message, _ = v.(string)
+			default:
+				e.Meta[k] = v
+			}
+		}
+		if e.Message == "" {
+			e.Message = e.Code
+		}
+		return e
 	}
-
-	res, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("clarian: request: %w", err)
-	}
-	defer res.Body.Close()
-
-	raw, err := io.ReadAll(res.Body)
-	if err != nil {
-		return fmt.Errorf("clarian: read body: %w", err)
-	}
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return newAPIError(res.StatusCode, raw)
-	}
-	if out == nil || len(raw) == 0 {
+	if out == nil {
 		return nil
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("clarian: decode response: %w", err)
+	if d, ok := env["data"]; ok {
+		raw = d
 	}
-	return nil
+	if len(raw) == 0 {
+		raw = []byte("{}")
+	}
+	return decode(raw, out)
 }
 
-// CashInService creates and fetches PIX cash-in orders.
-type CashInService struct{ c *Client }
-
-// Create generates a dynamic PIX QR / copia-e-cola. idempotencyKey is required
-// by the API — retries with the same key return the original order.
-func (s *CashInService) Create(ctx context.Context, idempotencyKey string, req CashInRequest) (*CashInOrderResponse, error) {
-	var out CashInOrderResponse
-	if err := s.c.do(ctx, http.MethodPost, "/cash-in/pix", idempotencyKey, req, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+func decode(raw []byte, out any) error {
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.UseNumber()
+	return d.Decode(out)
 }
 
-// Get retrieves a cash-in order by ID.
-func (s *CashInService) Get(ctx context.Context, id string) (*CashInOrderResponse, error) {
-	var out CashInOrderResponse
-	if err := s.c.do(ctx, http.MethodGet, "/cash-in/"+url.PathEscape(id), "", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+func call[T any](ctx context.Context, c *Client, method, path string, o reqOpts) (T, error) {
+	var out T
+	err := c.do(ctx, method, path, o, &out)
+	return out, err
 }
 
-// CashOutService creates and fetches PIX cash-out orders.
-type CashOutService struct{ c *Client }
-
-// Create sends BRL via PIX. idempotencyKey is required — retries never double-send.
-func (s *CashOutService) Create(ctx context.Context, idempotencyKey string, req CashOutRequest) (*CashOutOrderResponse, error) {
-	var out CashOutOrderResponse
-	if err := s.c.do(ctx, http.MethodPost, "/cash-out/pix", idempotencyKey, req, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+func get[T any](ctx context.Context, c *Client, path string, q Params) (T, error) {
+	return call[T](ctx, c, http.MethodGet, path, reqOpts{query: q})
 }
 
-// Get retrieves a cash-out order by ID.
-func (s *CashOutService) Get(ctx context.Context, id string) (*CashOutOrderResponse, error) {
-	var out CashOutOrderResponse
-	if err := s.c.do(ctx, http.MethodGet, "/cash-out/"+url.PathEscape(id), "", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+func post[T any](ctx context.Context, c *Client, path string, body any) (T, error) {
+	return call[T](ctx, c, http.MethodPost, path, reqOpts{body: body})
 }
 
-// BalancesService reads workspace balances.
-type BalancesService struct{ c *Client }
-
-// List returns balances per currency (BRL, USDT, USDC).
-func (s *BalancesService) List(ctx context.Context) ([]Balance, error) {
-	var res struct {
-		Balances []Balance `json:"balances"`
+// postKeyed is a money-moving create: an empty key fails before any network call.
+func postKeyed[T any](ctx context.Context, c *Client, path string, body any, key string) (T, error) {
+	if key == "" {
+		var zero T
+		return zero, ErrIdempotencyKeyRequired
 	}
-	if err := s.c.do(ctx, http.MethodGet, "/account/balances", "", nil, &res); err != nil {
-		return nil, err
-	}
-	return res.Balances, nil
+	return call[T](ctx, c, http.MethodPost, path, reqOpts{body: body, idemKey: key})
 }
 
-// TransactionsService lists and fetches ledger transactions.
-type TransactionsService struct{ c *Client }
-
-// List returns transactions, optionally filtered.
-func (s *TransactionsService) List(ctx context.Context, params ListTransactionsParams) ([]Transaction, error) {
-	q := url.Values{}
-	if params.Type != "" {
-		q.Set("type", params.Type)
-	}
-	if params.Status != "" {
-		q.Set("status", params.Status)
-	}
-	if params.Limit > 0 {
-		q.Set("limit", strconv.Itoa(params.Limit))
-	}
-	path := "/transactions"
-	if enc := q.Encode(); enc != "" {
-		path += "?" + enc
-	}
-	var res struct {
-		Transactions []Transaction `json:"transactions"`
-	}
-	if err := s.c.do(ctx, http.MethodGet, path, "", nil, &res); err != nil {
-		return nil, err
-	}
-	return res.Transactions, nil
-}
-
-// Get returns a single transaction by ID.
-func (s *TransactionsService) Get(ctx context.Context, id string) (*Transaction, error) {
-	var res struct {
-		Transaction Transaction `json:"transaction"`
-	}
-	if err := s.c.do(ctx, http.MethodGet, "/transactions/"+url.PathEscape(id), "", nil, &res); err != nil {
-		return nil, err
-	}
-	return &res.Transaction, nil
-}
-
-// WebhooksService manages webhook subscriptions.
-type WebhooksService struct{ c *Client }
-
-// List returns all webhook subscriptions.
-// Response shape: {ok, environment, subscriptions: [...]}.
-func (s *WebhooksService) List(ctx context.Context) ([]Webhook, error) {
-	var res struct {
-		Subscriptions []Webhook `json:"subscriptions"`
-	}
-	if err := s.c.do(ctx, http.MethodGet, "/webhooks", "", nil, &res); err != nil {
-		return nil, err
-	}
-	return res.Subscriptions, nil
-}
-
-// Create registers a webhook URL. Secret is a sibling of subscription in the
-// 201 body and is shown only once — store it.
-// Response shape: {ok, environment, subscription: {...}, secret: "whsec_..."}.
-func (s *WebhooksService) Create(ctx context.Context, input WebhookInput) (*WebhookWithSecret, error) {
-	var res struct {
-		Subscription Webhook `json:"subscription"`
-		Secret       string  `json:"secret"`
-	}
-	if err := s.c.do(ctx, http.MethodPost, "/webhooks", "", input, &res); err != nil {
-		return nil, err
-	}
-	return &WebhookWithSecret{Webhook: res.Subscription, Secret: res.Secret}, nil
-}
-
-// Get retrieves a webhook subscription by ID.
-// Response shape: {ok, environment, subscription: {...}}.
-func (s *WebhooksService) Get(ctx context.Context, id string) (*Webhook, error) {
-	var res struct {
-		Subscription Webhook `json:"subscription"`
-	}
-	if err := s.c.do(ctx, http.MethodGet, "/webhooks/"+url.PathEscape(id), "", nil, &res); err != nil {
-		return nil, err
-	}
-	return &res.Subscription, nil
-}
-
-// Update patches a webhook subscription.
-// Response shape: {ok, environment, subscription: {...}}.
-func (s *WebhooksService) Update(ctx context.Context, id string, input WebhookInput) (*Webhook, error) {
-	var res struct {
-		Subscription Webhook `json:"subscription"`
-	}
-	if err := s.c.do(ctx, http.MethodPatch, "/webhooks/"+url.PathEscape(id), "", input, &res); err != nil {
-		return nil, err
-	}
-	return &res.Subscription, nil
-}
-
-// Delete removes a webhook subscription. Response shape: {ok: true}.
-func (s *WebhooksService) Delete(ctx context.Context, id string) error {
-	return s.c.do(ctx, http.MethodDelete, "/webhooks/"+url.PathEscape(id), "", nil, nil)
-}
+func seg(id string) string { return url.PathEscape(id) }

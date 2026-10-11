@@ -1,100 +1,55 @@
 # frozen_string_literal: true
 
+require "json"
 require "openssl"
 require "time"
 
 module Clarian
-  # Webhook signature helpers (HMAC-SHA256 hex over timestamp.body).
-  module Webhooks
-    HEADER_SIGNATURE = "X-Clarian-Signature"
-    HEADER_TIMESTAMP = "X-Clarian-Timestamp"
-    HEADER_EVENT = "X-Clarian-Event"
-    HEADER_DELIVERY_ID = "X-Clarian-Delivery-Id"
-    HEADER_IDEMPOTENCY_KEY = "X-Clarian-Idempotency-Key"
-    HEADER_ATTEMPT = "X-Clarian-Attempt"
-
-    DEFAULT_TOLERANCE_SECONDS = 300
+  # Signing helpers for webhook deliveries.
+  module Webhook
+    DEFAULT_TOLERANCE = 300 # seconds
 
     module_function
 
-    # Return hex HMAC-SHA256 of "#{timestamp}.#{body}" using secret.
-    def sign_payload(secret:, timestamp:, payload:)
-      body = payload.is_a?(String) ? payload : payload.to_s
-      OpenSSL::HMAC.hexdigest("SHA256", secret.to_s, "#{timestamp}.#{body}")
+    # Signs "<timestamp>.<body>" exactly as Clarian does. For tests of your own handler.
+    def sign_payload(body, timestamp, secret)
+      OpenSSL::HMAC.hexdigest("SHA256", secret, "#{timestamp}.#{body}")
     end
 
-    # Verify HMAC-SHA256 signature and timestamp freshness.
-    # Returns false on missing inputs, bad signature, or stale/future timestamp.
-    def verify_signature(payload:, timestamp:, signature:, secret:, tolerance_seconds: DEFAULT_TOLERANCE_SECONDS)
-      return false if secret.to_s.empty? || signature.to_s.empty? || timestamp.to_s.empty?
-
-      begin
-        event_ts = parse_timestamp(timestamp)
+    def verify_signature(body, signature, timestamp, secret, tolerance: DEFAULT_TOLERANCE)
+      # An unparseable timestamp fails closed.
+      sent_at = begin
+        Time.iso8601(timestamp.to_s)
       rescue ArgumentError
         return false
       end
+      return false if (Time.now - sent_at).abs > tolerance
 
-      age = (Time.now.to_f - event_ts).abs
-      return false if age > tolerance_seconds
-
-      body = payload.is_a?(String) ? payload : payload.to_s
-      expected = sign_payload(secret: secret, timestamp: timestamp, payload: body)
-      return false if expected.bytesize != signature.bytesize
-
-      OpenSSL.secure_compare(expected, signature)
+      expected = sign_payload(body, timestamp, secret)
+      sig = signature.to_s
+      expected.bytesize == sig.bytesize && OpenSSL.fixed_length_secure_compare(expected, sig)
     end
 
-    # Read Clarian delivery headers (case-insensitive). Missing values become empty strings.
-    # Returns a Hash with keys: signature, timestamp, event, delivery_id, idempotency_key, attempt.
+    # Reads the x-clarian-* headers from a Hash (any key case, String or Array values) or a Rack env.
     def extract_headers(headers)
-      return empty_headers if headers.nil?
+      get = lambda do |name|
+        rack = "HTTP_#{name.upcase.tr('-', '_')}"
+        hit = headers.find { |k, _| k.to_s.downcase == name || k.to_s == rack }&.last
+        (hit.is_a?(Array) ? hit.first : hit).to_s
+      end
+      { signature: get.("x-clarian-signature"), timestamp: get.("x-clarian-timestamp"), event: get.("x-clarian-event") }
+    end
 
-      lower = {}
-      headers.each do |key, value|
-        next if key.nil?
-
-        lower[key.to_s.downcase] = first_value(value)
+    # Verifies a delivery and returns its parsed body {"id","type","created_at","data"}.
+    # raw_body must be the exact bytes received. Raises on a bad signature or stale timestamp.
+    # Dedupe on event["id"]: a delivery can arrive more than once.
+    def construct_event(raw_body, headers, secret, tolerance: DEFAULT_TOLERANCE)
+      h = extract_headers(headers)
+      unless verify_signature(raw_body, h[:signature], h[:timestamp], secret, tolerance: tolerance)
+        raise ArgumentError, "Invalid webhook signature or timestamp outside tolerance"
       end
 
-      {
-        signature: lower[HEADER_SIGNATURE.downcase] || "",
-        timestamp: lower[HEADER_TIMESTAMP.downcase] || "",
-        event: lower[HEADER_EVENT.downcase] || "",
-        delivery_id: lower[HEADER_DELIVERY_ID.downcase] || "",
-        idempotency_key: lower[HEADER_IDEMPOTENCY_KEY.downcase] || "",
-        attempt: lower[HEADER_ATTEMPT.downcase] || ""
-      }
+      JSON.parse(raw_body)
     end
-
-    def empty_headers
-      {
-        signature: "",
-        timestamp: "",
-        event: "",
-        delivery_id: "",
-        idempotency_key: "",
-        attempt: ""
-      }
-    end
-    private_class_method :empty_headers
-
-    def first_value(value)
-      return "" if value.nil?
-      return value.first.to_s if value.is_a?(Array)
-      value.to_s
-    end
-    private_class_method :first_value
-
-    def parse_timestamp(timestamp)
-      # Unix epoch (seconds as string or number-like)
-      if timestamp.match?(/\A-?\d+(\.\d+)?\z/)
-        return timestamp.to_f
-      end
-
-      Time.iso8601(timestamp).to_f
-    rescue ArgumentError
-      raise ArgumentError, "invalid webhook timestamp: #{timestamp.inspect}"
-    end
-    private_class_method :parse_timestamp
   end
 end

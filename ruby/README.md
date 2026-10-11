@@ -1,190 +1,190 @@
 # clarian (Ruby)
 
-Official Ruby SDK for the [Clarian Finance API](https://api.clarian.finance). PIX cash-in/cash-out, balances, wallets, transactions, and webhooks.
-
-Gem: `clarian` · **stdlib only** at runtime (`net/http`, `json`, `openssl`). Requires Ruby >= 3.0.
+Ruby SDK for the Clarian API v2: PIX cash-in and cash-out, BRL/stablecoin quotes and conversion, wallets and crypto sends, customers and KYC, payment links, sub-accounts and webhooks. Standard library only. Ruby 3.0+.
 
 ## Install
 
-Until the gem is published to RubyGems, install from this monorepo with Bundler:
-
 ```ruby
 # Gemfile
-gem "clarian",
-  git: "https://github.com/clarian-finance/sdk.git",
-  tag: "v0.4.1",
-  glob: "ruby/*.gemspec"
+gem "clarian", git: "https://github.com/clarian-finance/sdk", glob: "ruby/*.gemspec", tag: "v1.0.0"
 ```
 
-```bash
-bundle install
-```
-
-## Quickstart
+## Quick start
 
 ```ruby
 require "clarian"
 
-client = Clarian::Client.new(
-  api_key: ENV.fetch("CLARIAN_API_KEY"),       # cl_live_sk_... or cl_test_sk_...
-  workspace_id: ENV.fetch("CLARIAN_WORKSPACE_ID") # workspace UUID
+clarian = Clarian::Client.new(
+  api_key: ENV.fetch("CLARIAN_API_KEY"),        # cl_test_sk_... (sandbox) or cl_live_sk_... (live)
+  workspace_id: ENV.fetch("CLARIAN_WORKSPACE_ID")
 )
-# cl_test_sk_ -> sandbox; cl_live_sk_ (and any other prefix) -> production/live.
-# Override with base_url: "..." or timeout: 60.
 
-client.ping
-
-# Receive BRL via PIX (Idempotency-Key is required).
-charge = client.cash_in.create(
-  {
-    "amount" => 250.00,
-    "payer" => {
-      "name" => "Maria Silva",
-      "document_number" => "12345678900"
-    },
-    "description" => "Order #1234"
-  },
-  idempotency_key: "order-1234"
-)
-puts charge.dig("order", "pix", "copy_paste")
-
-# Send BRL via PIX (idempotency key required; retries never double-send).
-payout = client.cash_out.create(
-  { "amount" => 100.00 },
-  idempotency_key: "withdrawal-2026-07-01-001"
-)
-puts payout.dig("order", "id"), payout.dig("order", "status")
-
-# Optional: preview a PIX key owner before paying out.
-info = client.cash_out.dict_check("maria@example.com", key_type: "EMAIL")
-
-balances = client.balances.list
+clarian.ping
+balances = clarian.balances.list
 ```
 
-Auth headers (set automatically): `Authorization: Bearer <key>` and `X-Workspace-Id: <uuid>`.
+The key prefix picks the environment: `cl_test_sk_` calls `/v1/test`, `cl_live_sk_` calls `/v1/live`. Override the origin with `base_url:`. Other options: `timeout:` (seconds, default 30), `max_retries:` (default 2), `subaccount_id:`. Create keys in the dashboard under Negócios > API (needs 2FA). Give each key only the permissions it uses.
 
-## Environments
+Bodies and replies are plain Hashes. Send symbol or string keys; replies use string keys as in the API reference (`openapi.json`). The SDK returns the `data` member of each reply.
 
-| Key prefix       | Base URL                                                    |
-|------------------|-------------------------------------------------------------|
-| `cl_test_sk_…`   | `https://api.clarian.finance/functions/v1/api-gateway/test` |
-| `cl_live_sk_…`   | `https://api.clarian.finance/functions/v1/api-gateway/live` |
-| any other prefix | **live** (same as `cl_live_sk_…`); not rejected             |
+## Amounts
 
-Only the `cl_test_sk_` prefix selects sandbox. Unknown prefixes default to live so a mis-typed key can hit production; pass `base_url:` when you need an explicit host.
+Every amount is an integer in minor units, sent and returned as a string. BRL has scale 2 (R$ 10,00 is `"1000"`), USDT and USDC scale 6 (1 USDT is `"1000000"`). Pass a `String` or `Integer` (any size); a `Float` raises `ArgumentError` before the request. Balances carry their `scale`.
 
-## Error handling
+```ruby
+brl = balances.find { |b| b["currency"] == "BRL" && b["kind"] == "available" }
+# brl["balance_minor"] = "1250050", brl["scale"] = 2 -> R$ 12.500,50
+```
 
-Non-2xx responses raise `Clarian::Error` with `status`, `code` (JSON `error` when present), `message`, and `meta`. The exception text truncates the raw body to 500 characters.
+## Cash-in (receive PIX)
+
+```ruby
+charge = clarian.pix.payins.create({ amount_minor: "25000", currency: "BRL" }, "order-981")
+charge["pix_qr_code"] # copia-e-cola for the payer
+# later, or from the webhook:
+paid = clarian.pix.payins.retrieve(charge["id"])
+```
+
+The QR is valid for 30 minutes. The balance moves from `pending` to `available` when the PIX settles.
+
+## Cash-out (send PIX)
+
+```ruby
+fee = clarian.pix.payouts.fee({ amount_minor: "10000" }) # fee_minor, debit_minor
+payout = clarian.pix.payouts.create(
+  { amount_minor: "10000", currency: "BRL", pix_key: "settlement@yourcompany.com" },
+  "withdrawal-2026-10-10-001"
+)
+```
+
+Over the API, the money goes to your workspace's registered settlement key. Register it once in the dashboard; until then the call raises 403 `settlement_key_required`. Amount plus fee leave `available` at once and return if the PIX fails.
+
+## Quote and convert
+
+The direction is always `base_currency` -> `quote_currency`: you pay `base_amount_minor` of the base and receive the quote currency.
+
+```ruby
+# Buy USDT with R$ 500,00
+quote = clarian.conversions.quote({ base_currency: "BRL", quote_currency: "USDT", base_amount_minor: "50000" })
+quote["quote_amount_minor"] # USDT you receive (scale 6), after fees
+quote["expires_at"]         # execute before this
+
+result = clarian.conversions.execute(quote["id"])
+result.dig("ledger", "to_minor") # settled amount; absent while result["status"] == "processing"
+```
+
+A quote converts once: a second execute is 409 `quote_not_open`, an expired one 410 `quote_expired`. `execute` is never retried automatically; after a lost reply, read the payment with `transactions.list`. To sell USDT for BRL, swap the currencies.
+
+## Wallets and crypto
+
+```ruby
+wallets = clarian.wallets.list
+clarian.wallets.balance(wallets.first["id"])
+clarian.crypto.networks
+# API keys send only to wallets registered in the dashboard whitelist (403 destination_not_whitelisted).
+clarian.crypto.send({ amount_minor: "5000000", currency: "USDT", network: "polygon", to_address: "0x..." }, "send-17")
+```
+
+`Crypto#send` keeps the API name and so shadows `Object#send` on that object; use `__send__` for dynamic dispatch.
+
+## Customers, KYC and sub-accounts
+
+```ruby
+customer = clarian.customers.create({ kind: "person", display_name: "Maria Silva", document_type: "cpf", document_number: "52998224725" })
+clarian.kyc.create({ party_id: customer["id"] })
+
+sub = clarian.subaccounts.create({ display_name: "Store 12" })
+store = clarian.for_subaccount(sub["id"]) # every call acts on that sub-account
+store.pix.payins.create({ amount_minor: "1000" }, "store12-order-1")
+```
+
+## Payment links
+
+```ruby
+link = clarian.payment_links.create({ amount_minor: "4990", currency: "BRL", description: "Plano mensal" })
+page = clarian.payment_links.payments(limit: 50) # {"items" => [...], "next_cursor" => ...}
+```
+
+## Webhooks
+
+```ruby
+hook = clarian.webhooks.create({ url: "https://example.com/clarian", events: ["payment.completed", "payment.failed"] })
+hook["secret"] # shown only here: store it
+clarian.webhooks.test(hook["id"]) # sandbox key: sends a signed test.ping
+```
+
+Verify every delivery on the raw body before trusting it:
+
+```ruby
+# Rails: Clarian::Webhook.construct_event(request.raw_post, request.headers.env, secret)
+# Sinatra / Rack:
+post "/clarian" do
+  event = Clarian::Webhook.construct_event(request.body.read, request.env, ENV.fetch("CLARIAN_WEBHOOK_SECRET"))
+  if event["type"] == "payment.completed"
+    data = event["data"] # payment_id, kind, amount_minor, currency
+  end
+  status 200
+rescue ArgumentError
+  halt 400
+end
+```
+
+`construct_event` accepts a plain Hash of headers (any case) or a Rack env. The signature is HMAC-SHA256 hex of `"#{x-clarian-timestamp}.#{raw_body}"`, compared in constant time; deliveries older than 5 minutes and unparseable timestamps are refused. Dedupe on `event["id"]` and answer 2xx fast. Failed deliveries are listed in `webhooks.deliveries`. `webhooks.test` and `webhooks.resend(id)` work with a sandbox key only; in live, reconcile missed events with `transactions.list`. `Clarian::Webhook.sign_payload(body, timestamp, secret)` signs a payload for tests of your own handler.
+
+## Sandbox
+
+With a `cl_test_sk_` key nothing reaches a bank or chain. Settle or fail anything pending:
+
+```ruby
+clarian.pix.payins.simulate(charge["id"])                                 # completed
+clarian.pix.payouts.simulate(payout["id"], { status: "failed", reason: "test" })
+clarian.crypto.simulate(send["id"])
+```
+
+## Errors, retries and idempotency
+
+Non-2xx replies raise `Clarian::ClarianError` with `status`, the API's stable `code` and the remaining fields in `meta`:
 
 ```ruby
 begin
-  client.cash_out.create({ "amount" => 100.00 }, idempotency_key: "payout-inv-42")
-rescue Clarian::Error => e
-  puts e.status, e.code, e.message, e.meta
+  clarian.pix.payouts.create({ amount_minor: "10000", pix_key: "x" }, "w-1")
+rescue Clarian::ClarianError => e
+  handle_low_balance if e.code == "insufficient_balance"
 end
 ```
 
-## Verifying webhooks
+Money-moving creates (`pix.payins.create`, `pix.payouts.create`, `crypto.send`, `payment_links.charge`, `checkout.pay`) require an idempotency key and raise `ArgumentError` without one: retrying with the same key returns the same payment and never pays twice. The SDK retries 429/502/503/504 and network errors up to `max_retries` (default 2), honoring `Retry-After`, but only reads, deletes and calls that carry an idempotency key. The API allows 120 requests per minute per key.
 
-Deliveries are signed with **HMAC-SHA256** (hex) over `` `{X-Clarian-Timestamp}.{rawBody}` `` using the full `whsec_…` secret (prefix included; do not strip it). Reject timestamps older than **5 minutes** (replay protection).
+## Not on the API
 
-```ruby
-require "clarian"
+Actions that need a person's own second factor stay in the dashboard: inviting or changing team members, voting on approvals, creating or rotating API keys, saving payout accounts and whitelist entries, and changing workspace settings. Their read endpoints are in the SDK.
 
-def handle(raw_body, headers)
-  secret = ENV.fetch("CLARIAN_WEBHOOK_SECRET") # whsec_...
-  extracted = Clarian::Webhooks.extract_headers(headers)
-  ok = Clarian::Webhooks.verify_signature(
-    payload: raw_body,
-    timestamp: extracted[:timestamp],
-    signature: extracted[:signature],
-    secret: secret
-  )
-  raise "invalid webhook signature" unless ok
-  # process JSON body...
-end
-```
+## Reference
 
-For local handler tests, sign a payload the same way the server does:
+| Area | Methods |
+|---|---|
+| `balances` | `list` |
+| `pix.payins` | `create`, `retrieve`, `simulate` |
+| `pix.payouts` | `create`, `retrieve`, `fee`, `lookup`, `simulate`, `list_accounts` |
+| `conversions` | `quote`, `execute`, `prices` |
+| `wallets` | `list`, `create`, `retrieve`, `balance`, `transactions` |
+| `crypto` | `send`, `simulate`, `networks` |
+| `transactions` | `list`, `retrieve`, `statement` |
+| `customers` | `list`, `create`, `retrieve`, `update` |
+| `kyc` | `list`, `create`, `retrieve`, `list_rfi`, `answer_rfi` |
+| `webhooks` | `list`, `create`, `retrieve`, `update`, `delete`, `test`, `deliveries`, `resend` |
+| `payment_links` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replace_splits`, `charge` |
+| `checkout` | `retrieve`, `pay` |
+| `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions` |
+| `whitelist`, `bank_accounts`, `api_keys`, `settings`, `notifications`, `team`, `approvals` | read |
+| `workflows`, `treasury` | `list`, `create` (+ `workflows.runs`) |
 
-```ruby
-sig = Clarian::Webhooks.sign_payload(
-  secret: secret,
-  timestamp: timestamp,
-  payload: raw_body
-)
-```
-
-Create a subscription (secret shown **once**):
-
-```ruby
-sub = client.webhooks.create({
-  "url" => "https://example.com/webhooks/clarian",
-  "events" => ["pix_payin.completed", "pix_payout.completed"]
-})
-# store sub["secret"] immediately; it is never returned again
-puts sub["id"], sub["secret"]
-```
-
-## Sandbox testing
-
-Sandbox helpers live on `client.sandbox`. They require a `cl_test_sk_…` key and raise `ArgumentError` for live keys **before** any HTTP call. Outside the test environment the gateway returns `404 {error:"sandbox_only"}`.
-
-```ruby
-# Advance a pending cash-in (nil/empty status -> completed).
-order = client.sandbox.simulate_cash_in(charge.dig("order", "id"), "completed")
-# status: "completed" | "expired" | "failed"
-
-# Advance a cash-out: "completed" | "failed"
-client.sandbox.simulate_cash_out(payout.dig("order", "id"), "failed")
-
-# Enqueue a sample webhook for a subscription.
-result = client.sandbox.send_webhook_event(sub["id"], Clarian::EVENT_PIX_PAYIN_COMPLETED)
-new_id = client.sandbox.resend_webhook_delivery(result["delivery_id"])
-```
-
-### Magic PIX keys
-
-| Constant / key            | Sandbox payout behavior                                      |
-|---------------------------|--------------------------------------------------------------|
-| `SANDBOX_FAIL_PIX_KEY`    | `fail@sandbox.clarian` (fails + refund)                      |
-| `SANDBOX_PENDING_PIX_KEY` | `pending@sandbox.clarian` (stays pending until simulated)    |
-
-```ruby
-client.cash_out.create(
-  { "amount" => 10.00, "pix_key" => Clarian::SANDBOX_FAIL_PIX_KEY },
-  idempotency_key: "payout-fail-1"
-)
-```
-
-Sample event type constants: `EVENT_PIX_PAYIN_CREATED`, `EVENT_PIX_PAYIN_COMPLETED`, `EVENT_PIX_PAYIN_EXPIRED`, `EVENT_PIX_PAYOUT_CREATED`, `EVENT_PIX_PAYOUT_COMPLETED`, `EVENT_PIX_PAYOUT_FAILED`, `EVENT_CHECKOUT_PAID`.
-
-## API surface
-
-| Method | Path | Client |
-|--------|------|--------|
-| `GET` | `/ping` | `client.ping` |
-| `POST` | `/cash-in/pix` | `client.cash_in.create(params, idempotency_key:)` |
-| `GET` | `/cash-in/{id}` | `client.cash_in.retrieve(id)` |
-| `POST` | `/pix/payouts/dict` | `client.cash_out.dict_check(pix_key, key_type: nil)` |
-| `POST` | `/cash-out/pix` | `client.cash_out.create(params, idempotency_key:)` |
-| `GET` | `/cash-out/{id}` | `client.cash_out.retrieve(id)` |
-| `GET` | `/account/balances` | `client.balances.list` |
-| `GET` | `/transactions` | `client.transactions.list(...)` |
-| `GET` | `/transactions/{id}` | `client.transactions.retrieve(id)` |
-| `GET` | `/wallets` | `client.wallets.list(network: nil)` |
-| `GET` | `/wallets/{id}/balance` | `client.wallets.retrieve_balance(id)` |
-| | webhooks CRUD | `client.webhooks.create/list/update/delete` |
-| | verify delivery | `Clarian::Webhooks.verify_signature` / `extract_headers` / `sign_payload` |
-| `POST` | `/pix/payins/{id}/simulate` | `client.sandbox.simulate_cash_in(id, status)` |
-| `POST` | `/pix/payouts/{id}/simulate` | `client.sandbox.simulate_cash_out(id, status)` |
-| `POST` | `/webhooks/{id}/test` | `client.sandbox.send_webhook_event(id, event_type)` |
-| `POST` | `/webhooks/deliveries/{id}/resend` | `client.sandbox.resend_webhook_delivery(id)` |
+Request and response shapes are in the OpenAPI reference (`../openapi.json`, also at `https://app.clarian.finance/openapi.json`).
 
 ## Development
 
 ```bash
 cd ruby
 ruby -Ilib -Itest test/all.rb
+CLARIAN_API_KEY=cl_test_sk_... CLARIAN_WORKSPACE_ID=... CLARIAN_BASE_URL=http://localhost:3000 ruby -Ilib e2e/sandbox.rb
 ```

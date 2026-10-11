@@ -1,353 +1,146 @@
-"""Client env detection, headers, resources (mock transport, no network)."""
-
-from __future__ import annotations
-
 import json
-import unittest
+import time
+from datetime import datetime, timedelta, timezone
 
-from clarian import BASE_URL_LIVE, BASE_URL_TEST, Clarian, ClarianError
-from tests.mock_transport import MockTransport, RecordedRequest
+import pytest
 
+from clarian import Clarian, ClarianError, construct_webhook_event, sign_webhook_payload, verify_webhook_signature
 
-def _json_handler(
-    status: int = 200,
-    payload: dict | list | str | None = None,
-    assert_fn=None,
-):
-    def handler(req: RecordedRequest):
-        if assert_fn:
-            assert_fn(req)
-        if payload is None:
-            return status, b""
-        return status, payload
-
-    return handler
+KEY = "cl_test_sk_abc"
+WS = "ws-1"
 
 
-class TestEnvDetection(unittest.TestCase):
-    def test_test_prefix(self):
-        c = Clarian("cl_test_sk_abc", "ws")
-        self.assertEqual(c.base_url, BASE_URL_TEST)
+class Fake:
+    def __init__(self, *replies):
+        self.replies = list(replies)
+        self.calls = []
 
-    def test_live_prefix(self):
-        c = Clarian("cl_live_sk_abc", "ws")
-        self.assertEqual(c.base_url, BASE_URL_LIVE)
-
-    def test_unknown_defaults_live(self):
-        c = Clarian("other_key", "ws")
-        self.assertEqual(c.base_url, BASE_URL_LIVE)
-
-    def test_base_url_override_strips_trailing_slash(self):
-        c = Clarian("cl_test_sk_x", "ws", base_url="http://localhost:9999/v1/")
-        self.assertEqual(c.base_url, "http://localhost:9999/v1")
+    def __call__(self, method, url, headers, body, timeout):
+        self.calls.append((method, url, dict(headers), json.loads(body) if body else None))
+        r = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
+        if isinstance(r, Exception):
+            raise r
+        status, payload, *hdrs = r
+        return status, (hdrs[0] if hdrs else {}), json.dumps(payload).encode()
 
 
-class TestAuthHeaders(unittest.TestCase):
-    def test_workspace_and_auth_on_every_request(self):
-        mt = MockTransport(
-            _json_handler(
-                payload={
-                    "ok": True,
-                    "environment": "sandbox",
-                    "master_account_id": "m1",
-                }
-            )
-        )
-        c = Clarian("cl_test_sk_key", "ws-uuid", base_url="https://mock", transport=mt)
-        res = c.ping()
-        self.assertTrue(res["ok"])
-        self.assertEqual(mt.last.method, "GET")
-        self.assertEqual(mt.last.path, "/ping")
-        self.assertEqual(mt.last.headers["Authorization"], "Bearer cl_test_sk_key")
-        self.assertEqual(mt.last.headers["X-Workspace-Id"], "ws-uuid")
+def client(fake, **kw):
+    return Clarian(KEY, WS, transport=fake, sleep=lambda s: None, **kw)
 
 
-class TestIdempotencyHeader(unittest.TestCase):
-    def test_cash_in_create_sends_idempotency_key(self):
-        mt = MockTransport(
-            _json_handler(
-                status=201,
-                payload={
-                    "ok": True,
-                    "environment": "sandbox",
-                    "order": {
-                        "id": "ord_1",
-                        "status": "pending",
-                        "amount": 19.50,
-                        "currency": "BRL",
-                        "pix": {"copy_paste": "brcode"},
-                    },
-                },
-            )
-        )
-        c = Clarian("cl_test_sk_x", "ws-uuid", base_url="https://mock", transport=mt)
-        res = c.cash_in.create(
-            {
-                "amount": 19.50,
-                "payer": {"name": "Ana", "document_number": "52998224725"},
-            },
-            "pay-ext-1",
-        )
-        self.assertEqual(res["order"]["id"], "ord_1")
-        self.assertEqual(mt.last.method, "POST")
-        self.assertEqual(mt.last.path, "/cash-in/pix")
-        self.assertEqual(mt.last.headers["Idempotency-Key"], "pay-ext-1")
-        self.assertEqual(mt.last.headers["X-Workspace-Id"], "ws-uuid")
-        body = json.loads(mt.last.body.decode())
-        self.assertEqual(body["amount"], 19.50)
-        self.assertEqual(body["payer"]["name"], "Ana")
-
-    def test_cash_out_create_sends_idempotency_key(self):
-        mt = MockTransport(
-            _json_handler(
-                status=201,
-                payload={"ok": True, "order": {"id": "out_9", "status": "processing"}},
-            )
-        )
-        c = Clarian("cl_test_sk_x", "ws", base_url="https://mock", transport=mt)
-        c.cash_out.create(
-            {"amount": 10.00, "pix_key": "abc", "pix_key_type": "EVP"},
-            "repasse-1",
-        )
-        self.assertEqual(mt.last.headers["Idempotency-Key"], "repasse-1")
-        self.assertEqual(mt.last.path, "/cash-out/pix")
-
-    def test_get_does_not_send_idempotency_key(self):
-        mt = MockTransport(
-            _json_handler(payload={"ok": True, "order": {"id": "x", "status": "pending"}})
-        )
-        c = Clarian("cl_test_sk_x", "ws", base_url="https://mock", transport=mt)
-        c.cash_in.retrieve("x")
-        self.assertNotIn("Idempotency-Key", mt.last.headers)
+def test_headers_url_and_unwrap():
+    fake = Fake((200, {"data": {"id": "p1"}}))
+    out = client(fake).for_subaccount("sub-9").pix.payins.create({"amount_minor": 10**30}, "k-1")
+    method, url, headers, body = fake.calls[0]
+    assert out == {"id": "p1"}
+    assert (method, url) == ("POST", "https://api.clarian.finance/v1/test/pix/payins")
+    assert headers["Authorization"] == f"Bearer {KEY}"
+    assert headers["X-Workspace-Id"] == WS and headers["X-Subaccount-Id"] == "sub-9"
+    assert headers["Idempotency-Key"] == "k-1" and headers["Content-Type"] == "application/json"
+    assert body == {"amount_minor": 10**30}
 
 
-class TestResourceHappyPaths(unittest.TestCase):
-    def test_cash_in_retrieve(self):
-        mt = MockTransport(
-            _json_handler(
-                payload={"ok": True, "order": {"id": "ord_paid", "status": "completed"}}
-            )
-        )
-        c = Clarian("cl_live_sk_x", "ws", base_url="https://mock", transport=mt)
-        res = c.cash_in.retrieve("ord_paid")
-        self.assertEqual(res["order"]["status"], "completed")
-        self.assertEqual(mt.last.path, "/cash-in/ord_paid")
-
-    def test_cash_out_retrieve(self):
-        mt = MockTransport(
-            _json_handler(
-                payload={"ok": True, "order": {"id": "out_1", "status": "completed"}}
-            )
-        )
-        c = Clarian("cl_test_sk_x", "ws", base_url="https://mock", transport=mt)
-        res = c.cash_out.retrieve("out_1")
-        self.assertEqual(res["order"]["id"], "out_1")
-        self.assertEqual(mt.last.path, "/cash-out/out_1")
-
-    def test_cash_out_dict_check(self):
-        mt = MockTransport(
-            _json_handler(
-                payload={
-                    "ok": True,
-                    "dict": {"name": "Maria", "keyType": "EMAIL"},
-                }
-            )
-        )
-        c = Clarian("cl_test_sk_x", "ws", base_url="https://mock", transport=mt)
-        res = c.cash_out.dict_check("maria@example.com", "EMAIL")
-        self.assertEqual(res["dict"]["name"], "Maria")
-        self.assertEqual(mt.last.method, "POST")
-        self.assertEqual(mt.last.path, "/pix/payouts/dict")
-        body = json.loads(mt.last.body.decode())
-        self.assertEqual(body["pix_key"], "maria@example.com")
-        self.assertEqual(body["key_type"], "EMAIL")
-
-    def test_balances_list(self):
-        mt = MockTransport(
-            _json_handler(
-                payload={
-                    "ok": True,
-                    "balances": [
-                        {
-                            "currency": "BRL",
-                            "available": 100.50,
-                            "pending": 0,
-                            "locked": 0,
-                        }
-                    ],
-                }
-            )
-        )
-        c = Clarian("cl_test_sk_x", "ws", base_url="https://mock", transport=mt)
-        bals = c.balances.list()
-        self.assertEqual(len(bals), 1)
-        self.assertEqual(bals[0]["currency"], "BRL")
-        self.assertEqual(mt.last.path, "/account/balances")
-
-    def test_transactions_list_and_retrieve(self):
-        def handler(req: RecordedRequest):
-            if req.path.startswith("/transactions?") or req.path == "/transactions":
-                self.assertIn("type=pix_in", req.path)
-                self.assertIn("limit=20", req.path)
-                return 200, {
-                    "transactions": [
-                        {
-                            "id": "tx1",
-                            "type": "pix_in",
-                            "status": "completed",
-                            "amount": 10,
-                            "fee": 0,
-                            "currency": "BRL",
-                        }
-                    ]
-                }
-            if req.path == "/transactions/tx-99":
-                return 200, {
-                    "transaction": {
-                        "id": "tx-99",
-                        "type": "pix_in",
-                        "status": "completed",
-                        "amount": 10,
-                        "fee": 0.1,
-                        "currency": "BRL",
-                    }
-                }
-            self.fail(f"unexpected path {req.path}")
-
-        mt = MockTransport(handler)
-        c = Clarian("cl_test_sk_x", "ws", base_url="https://mock", transport=mt)
-        lst = c.transactions.list(type="pix_in", limit=20)
-        self.assertEqual(lst[0]["id"], "tx1")
-        tx = c.transactions.retrieve("tx-99")
-        self.assertEqual(tx["id"], "tx-99")
-
-    def test_wallets_list_and_balance(self):
-        def handler(req: RecordedRequest):
-            if req.path == "/wallets" or req.path.startswith("/wallets?"):
-                return 200, {
-                    "ok": True,
-                    "wallets": [
-                        {
-                            "id": "w1",
-                            "network": "polygon",
-                            "address": "0xabc",
-                        }
-                    ],
-                }
-            if req.path == "/wallets/w1/balance":
-                return 200, {
-                    "wallet_id": "w1",
-                    "network": "polygon",
-                    "address": "0xabc",
-                    "balances": [{"currency": "USDT", "amount": "1.5"}],
-                }
-            self.fail(f"unexpected path {req.path}")
-
-        mt = MockTransport(handler)
-        c = Clarian("cl_test_sk_x", "ws", base_url="https://mock", transport=mt)
-        wallets = c.wallets.list()
-        self.assertEqual(wallets[0]["id"], "w1")
-        bal = c.wallets.retrieve_balance("w1")
-        self.assertEqual(bal["wallet_id"], "w1")
-        self.assertEqual(bal["balances"][0]["currency"], "USDT")
-
-    def test_webhooks_crud(self):
-        def handler(req: RecordedRequest):
-            if req.method == "POST" and req.path == "/webhooks":
-                return 201, {
-                    "ok": True,
-                    "subscription": {
-                        "id": "wh1",
-                        "url": "https://ex.com",
-                        "events": ["pix_payin.completed"],
-                        "is_active": True,
-                    },
-                    "secret": "whsec_abc",
-                }
-            if req.method == "GET" and req.path == "/webhooks":
-                return 200, {
-                    "subscriptions": [
-                        {
-                            "id": "wh1",
-                            "url": "https://ex.com",
-                            "events": ["pix_payin.completed"],
-                            "is_active": True,
-                        }
-                    ]
-                }
-            if req.method == "PATCH" and req.path == "/webhooks/wh1":
-                return 200, {
-                    "subscription": {
-                        "id": "wh1",
-                        "url": "https://ex.com/v2",
-                        "events": ["pix_payin.completed"],
-                        "is_active": False,
-                    }
-                }
-            if req.method == "DELETE" and req.path == "/webhooks/wh1":
-                return 200, {"ok": True}
-            self.fail(f"unexpected {req.method} {req.path}")
-
-        mt = MockTransport(handler)
-        c = Clarian("cl_test_sk_x", "ws", base_url="https://mock", transport=mt)
-        created = c.webhooks.create(
-            {"url": "https://ex.com", "events": ["pix_payin.completed"]}
-        )
-        self.assertEqual(created["secret"], "whsec_abc")
-        self.assertEqual(created["id"], "wh1")
-        subs = c.webhooks.list()
-        self.assertEqual(len(subs), 1)
-        upd = c.webhooks.update(
-            "wh1",
-            {
-                "url": "https://ex.com/v2",
-                "events": ["pix_payin.completed"],
-                "is_active": False,
-            },
-        )
-        self.assertFalse(upd["is_active"])
-        c.webhooks.delete("wh1")
-        self.assertEqual(mt.calls[-1].method, "DELETE")
+def test_live_env_base_url_query_and_segment():
+    fake = Fake((200, {"data": []}))
+    c = Clarian("cl_live_sk_x", WS, base_url="http://localhost:3000/", transport=fake)
+    c.wallets.transactions("a/b", limit=5)
+    assert fake.calls[0][1] == "http://localhost:3000/v1/live/wallets/a%2Fb/transactions?limit=5"
+    assert c.environment == "live"
 
 
-class TestClarianError(unittest.TestCase):
-    def test_json_code_and_meta(self):
-        mt = MockTransport(
-            _json_handler(
-                status=402,
-                payload={
-                    "error": "insufficient_balance",
-                    "detail": "saldo insuficiente",
-                    "available": 10,
-                    "requested": 100,
-                },
-            )
-        )
-        c = Clarian("cl_test_sk_x", "ws", base_url="https://mock", transport=mt)
-        with self.assertRaises(ClarianError) as cm:
-            c.cash_out.create({"amount": 100}, "idem")
-        err = cm.exception
-        self.assertEqual(err.status, 402)
-        self.assertEqual(err.code, "insufficient_balance")
-        self.assertEqual(err.message, "saldo insuficiente")
-        self.assertEqual(err.meta.get("available"), 10)
-        self.assertIn("insufficient_balance", str(err))
-
-    def test_body_truncation_in_message(self):
-        long_body = "x" * 600
-        mt = MockTransport(lambda req: (429, long_body))
-        c = Clarian("cl_test_sk_x", "ws", base_url="https://mock", transport=mt)
-        with self.assertRaises(ClarianError) as cm:
-            c.ping()
-        err = cm.exception
-        self.assertEqual(err.status, 429)
-        self.assertEqual(err.code, "")
-        self.assertEqual(len(err.message), 500)
-        # Exception string must not contain the full 600-char body.
-        self.assertLessEqual(len(str(err)), 500 + len("HTTP 429: "))
-        self.assertNotIn("x" * 600, str(err))
-        self.assertEqual(err.body, long_body)
+def test_bad_key_prefix():
+    with pytest.raises(ValueError):
+        Clarian("sk_nope", WS)
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_error_mapping():
+    fake = Fake((402, {"error": "insufficient_balance", "message": "no funds", "needed": "10"}))
+    with pytest.raises(ClarianError) as e:
+        client(fake).balances.list()
+    assert (e.value.status, e.value.code, str(e.value), e.value.meta) == (402, "insufficient_balance", "no funds", {"needed": "10"})
+
+
+def test_get_retried_with_retry_after():
+    slept = []
+    fake = Fake((503, {}, {"Retry-After": "2"}), (200, {"data": [1]}))
+    assert Clarian(KEY, WS, transport=fake, sleep=slept.append).balances.list() == [1]
+    assert len(fake.calls) == 2 and slept == [2.0]
+
+
+def test_network_error_retried_then_raised():
+    fake = Fake(OSError("down"))
+    with pytest.raises(OSError):
+        client(fake).balances.list()
+    assert len(fake.calls) == 3
+
+
+def test_post_without_key_not_retried():
+    fake = Fake((503, {"error": "unavailable"}), (200, {"data": {}}))
+    with pytest.raises(ClarianError):
+        client(fake).customers.create({"kind": "person"})
+    assert len(fake.calls) == 1
+
+
+def test_execute_not_retried_and_no_key():
+    fake = Fake((502, {"error": "bad_gateway"}), (200, {"data": {}}))
+    with pytest.raises(ClarianError):
+        client(fake).conversions.execute("q1")
+    assert len(fake.calls) == 1 and "Idempotency-Key" not in fake.calls[0][2]
+
+
+def test_post_with_key_retried():
+    fake = Fake((429, {}), (200, {"data": {"id": "x"}}))
+    assert client(fake).crypto.send({"amount_minor": "1"}, "k")["id"] == "x"
+    assert len(fake.calls) == 2
+
+
+@pytest.mark.parametrize("call", [
+    lambda c: c.pix.payins.create({}, ""),
+    lambda c: c.pix.payouts.create({}, ""),
+    lambda c: c.crypto.send({}, ""),
+    lambda c: c.payment_links.charge("l", {}, ""),
+    lambda c: c.checkout.pay("s", {}, ""),
+])
+def test_idempotency_key_required(call):
+    fake = Fake((200, {"data": {}}))
+    with pytest.raises(ValueError, match="idempotency_key is required"):
+        call(client(fake))
+    assert fake.calls == []
+
+
+def test_float_amount_rejected():
+    fake = Fake((200, {"data": {}}))
+    with pytest.raises(TypeError):
+        client(fake).pix.payouts.fee({"amount_minor": 10.5})
+    assert fake.calls == []
+
+
+SECRET = "whsec_test"
+BODY = json.dumps({"id": "evt_1", "type": "test.ping", "created_at": "2026-10-11T00:00:00Z", "data": {}})
+
+
+def headers_for(ts, sig=None):
+    return {"X-Clarian-Signature": sig or sign_webhook_payload(BODY, ts, SECRET), "X-Clarian-Timestamp": ts}
+
+
+def iso(delta=0):
+    return (datetime.now(timezone.utc) + timedelta(seconds=delta)).isoformat().replace("+00:00", "Z")
+
+
+def test_webhook_valid():
+    assert construct_webhook_event(BODY.encode(), headers_for(iso()), SECRET)["id"] == "evt_1"
+
+
+def test_webhook_bad_signature():
+    with pytest.raises(ValueError):
+        construct_webhook_event(BODY, headers_for(iso(), "0" * 64), SECRET)
+
+
+def test_webhook_stale():
+    ts = iso(-301)
+    assert not verify_webhook_signature(BODY, sign_webhook_payload(BODY, ts, SECRET), ts, SECRET)
+
+
+def test_webhook_unparseable_timestamp():
+    ts = "not-a-date"
+    assert not verify_webhook_signature(BODY, sign_webhook_payload(BODY, ts, SECRET), ts, SECRET)
