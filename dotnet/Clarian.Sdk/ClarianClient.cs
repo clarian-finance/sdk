@@ -1,177 +1,73 @@
-using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace Clarian;
 
-/// <summary>
-/// Clarian Finance API client.
-/// Environment is inferred from the API key prefix:
-/// cl_test_sk_ → sandbox (BaseUrlTest), otherwise live (BaseUrlLive).
-/// </summary>
-public sealed class ClarianClient : IDisposable
+public sealed record ClarianOptions
 {
-    public const string BaseUrlLive = "https://api.clarian.finance/functions/v1/api-gateway/live";
-    public const string BaseUrlTest = "https://api.clarian.finance/functions/v1/api-gateway/test";
+    /// <summary><c>cl_live_sk_...</c> (live) or <c>cl_test_sk_...</c> (sandbox). The key picks the environment.</summary>
+    public required string ApiKey { get; init; }
+    public required string WorkspaceId { get; init; }
+    /// <summary>API origin. Default <c>https://api.clarian.finance</c>.</summary>
+    public string? BaseUrl { get; init; }
+    /// <summary>Per-request timeout. Default 30 s.</summary>
+    public TimeSpan? Timeout { get; init; }
+    /// <summary>Act on one child workspace. Same as <see cref="ClarianClient.ForSubaccount"/>.</summary>
+    public string? SubaccountId { get; init; }
+    /// <summary>Retries for 429/502/503/504 and network errors on reads, deletes and idempotent creates. Default 2.</summary>
+    public int MaxRetries { get; init; } = 2;
+    /// <summary>Custom HttpClient (tests, proxies). Default a shared instance.</summary>
+    public HttpClient? HttpClient { get; init; }
+}
 
-    public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
+public sealed class ClarianClient
+{
+    private const string DefaultBaseUrl = "https://api.clarian.finance";
+    private static readonly HttpClient SharedHttp = new() { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
 
-    internal static readonly JsonSerializerOptions JsonOptions = new()
+    private readonly ClientConfig _config;
+    private readonly ClarianOptions _options;
+
+    public ClarianEnvironment Environment => _config.Environment;
+    public Balances Balances { get; }
+    public Wallets Wallets { get; }
+    public Transactions Transactions { get; }
+    public Pix Pix { get; }
+    public Conversions Conversions { get; }
+    public Crypto Crypto { get; }
+    public Customers Customers { get; }
+    public Kyc Kyc { get; }
+    public Whitelist Whitelist { get; }
+    public BankAccounts BankAccounts { get; }
+    public Webhooks Webhooks { get; }
+    public PaymentLinks PaymentLinks { get; }
+    public Checkout Checkout { get; }
+    public SubAccounts Subaccounts { get; }
+    public ApiKeys ApiKeys { get; }
+    public Settings Settings { get; }
+    public Notifications Notifications { get; }
+    public Team Team { get; }
+    public Workflows Workflows { get; }
+    public Approvals Approvals { get; }
+    public Treasury Treasury { get; }
+
+    public ClarianClient(ClarianOptions options)
     {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        PropertyNameCaseInsensitive = false,
-    };
-
-    private readonly HttpClient _http;
-    private readonly bool _disposeHttp;
-    private readonly string _apiKey;
-    private readonly string _workspaceId;
-    private readonly string _baseUrl;
-
-    public string ApiKey => _apiKey;
-    public string WorkspaceId => _workspaceId;
-    public string BaseUrl => _baseUrl;
-
-    public CashInService CashIn { get; }
-    public CashOutService CashOut { get; }
-    public BalancesService Balances { get; }
-    public TransactionsService Transactions { get; }
-    public WalletsService Wallets { get; }
-    public WebhooksService Webhooks { get; }
-    public SandboxService Sandbox { get; }
-
-    public ClarianClient(
-        string apiKey,
-        string workspaceId,
-        string? baseUrl = null,
-        TimeSpan? timeout = null,
-        HttpMessageHandler? handler = null)
-    {
-        if (string.IsNullOrEmpty(apiKey))
-            throw new ArgumentException("apiKey is required", nameof(apiKey));
-        if (string.IsNullOrEmpty(workspaceId))
-            throw new ArgumentException("workspaceId is required", nameof(workspaceId));
-
-        _apiKey = apiKey;
-        _workspaceId = workspaceId;
-
-        var inferred = apiKey.StartsWith("cl_test_sk_", StringComparison.Ordinal)
-            ? BaseUrlTest
-            : BaseUrlLive;
-        var baseResolved = (baseUrl ?? inferred).TrimEnd('/');
-        _baseUrl = baseResolved;
-
-        if (handler is not null)
-        {
-            _http = new HttpClient(handler, disposeHandler: false)
-            {
-                Timeout = timeout ?? DefaultTimeout,
-            };
-            _disposeHttp = true;
-        }
-        else
-        {
-            _http = new HttpClient
-            {
-                Timeout = timeout ?? DefaultTimeout,
-            };
-            _disposeHttp = true;
-        }
-
-        CashIn = new CashInService(this);
-        CashOut = new CashOutService(this);
-        Balances = new BalancesService(this);
-        Transactions = new TransactionsService(this);
-        Wallets = new WalletsService(this);
-        Webhooks = new WebhooksService(this);
-        Sandbox = new SandboxService(this);
+        if (string.IsNullOrEmpty(options.ApiKey)) throw new ArgumentException("apiKey is required");
+        if (string.IsNullOrEmpty(options.WorkspaceId)) throw new ArgumentException("workspaceId is required");
+        _options = options;
+        var c = _config = new ClientConfig(
+            options.ApiKey, options.WorkspaceId, (options.BaseUrl ?? DefaultBaseUrl).TrimEnd('/'),
+            options.Timeout ?? TimeSpan.FromSeconds(30), Http.ResolveEnvironment(options.ApiKey),
+            options.SubaccountId, options.HttpClient ?? SharedHttp, options.MaxRetries);
+        Balances = new(c); Wallets = new(c); Transactions = new(c); Pix = new(c); Conversions = new(c);
+        Crypto = new(c); Customers = new(c); Kyc = new(c); Whitelist = new(c); BankAccounts = new(c);
+        Webhooks = new(c); PaymentLinks = new(c); Checkout = new(c); Subaccounts = new(c); ApiKeys = new(c);
+        Settings = new(c); Notifications = new(c); Team = new(c); Workflows = new(c); Approvals = new(c); Treasury = new(c);
     }
 
-    /// <summary>GET /ping: credential and workspace probe.</summary>
-    public Task<PingResponse> PingAsync(CancellationToken cancellationToken = default) =>
-        RequestAsync<PingResponse>(HttpMethod.Get, "/ping", null, null, cancellationToken);
+    /// <summary>Checks the key and workspace.</summary>
+    public Task<JsonElement> PingAsync(CancellationToken ct = default) => Http.RequestAsync(_config, HttpMethod.Get, "ping", ct: ct);
 
-    internal async Task<T> RequestAsync<T>(
-        HttpMethod method,
-        string path,
-        object? body,
-        string? idempotencyKey,
-        CancellationToken cancellationToken)
-    {
-        var url = _baseUrl + path;
-        using var req = new HttpRequestMessage(method, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
-        req.Headers.TryAddWithoutValidation("X-Workspace-Id", _workspaceId);
-
-        if (body is not null)
-        {
-            var json = JsonSerializer.Serialize(body, body.GetType(), JsonOptions);
-            req.Content = new StringContent(json, Encoding.UTF8, "application/json");
-        }
-
-        if (!string.IsNullOrEmpty(idempotencyKey))
-            req.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
-
-        using var res = await _http.SendAsync(req, cancellationToken).ConfigureAwait(false);
-        var raw = res.Content is null
-            ? ""
-            : await res.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-
-        var status = (int)res.StatusCode;
-        if (status < 200 || status >= 300)
-            throw new ClarianException(status, raw);
-
-        if (string.IsNullOrEmpty(raw) || typeof(T) == typeof(object))
-            return default!;
-
-        var parsed = JsonSerializer.Deserialize<T>(raw, JsonOptions);
-        if (parsed is null)
-            throw new ClarianException(status, raw);
-        return parsed;
-    }
-
-    internal async Task RequestAsync(
-        HttpMethod method,
-        string path,
-        object? body,
-        string? idempotencyKey,
-        CancellationToken cancellationToken)
-    {
-        var url = _baseUrl + path;
-        using var req = new HttpRequestMessage(method, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
-        req.Headers.TryAddWithoutValidation("X-Workspace-Id", _workspaceId);
-
-        if (body is not null)
-        {
-            var json = JsonSerializer.Serialize(body, body.GetType(), JsonOptions);
-            req.Content = new StringContent(json, Encoding.UTF8, "application/json");
-        }
-
-        if (!string.IsNullOrEmpty(idempotencyKey))
-            req.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
-
-        using var res = await _http.SendAsync(req, cancellationToken).ConfigureAwait(false);
-        var raw = res.Content is null
-            ? ""
-            : await res.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-
-        var status = (int)res.StatusCode;
-        if (status < 200 || status >= 300)
-            throw new ClarianException(status, raw);
-    }
-
-    internal static string PathEscape(string segment)
-    {
-        if (string.IsNullOrEmpty(segment))
-            return "";
-        return Uri.EscapeDataString(segment);
-    }
-
-    public void Dispose()
-    {
-        if (_disposeHttp)
-            _http.Dispose();
-    }
+    /// <summary>A client that acts on one child workspace (sends <c>X-Subaccount-Id</c>).</summary>
+    public ClarianClient ForSubaccount(string subaccountId) => new(_options with { SubaccountId = subaccountId });
 }

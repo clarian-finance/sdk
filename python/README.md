@@ -1,179 +1,188 @@
-# clarian-sdk
+# clarian-sdk (Python)
 
-Official Python SDK for the [Clarian Finance API](https://api.clarian.finance). PIX cash-in/cash-out, balances, wallets, transactions, and webhooks.
+Python SDK for the Clarian API v2: PIX cash-in and cash-out, BRL/stablecoin quotes and conversion, wallets and crypto sends, customers and KYC, payment links, sub-accounts and webhooks. Standard library only. Python 3.9+.
 
-Package: `clarian` · distribution: `clarian-sdk` · **stdlib only** (no third-party runtime dependencies). Requires Python 3.9+.
+Requests and replies are plain `dict`s shaped as in the OpenAPI reference (`openapi.json`).
 
 ## Install
 
 ```bash
-pip install "git+https://github.com/clarian-finance/sdk.git@v0.4.1#subdirectory=python"
+pip install "git+https://github.com/clarian-finance/sdk@v1.0.0#subdirectory=python"
 ```
 
-## Quickstart
+## Quick start
 
 ```python
 import os
 from clarian import Clarian
 
-client = Clarian(
-    os.environ["CLARIAN_API_KEY"],       # cl_live_sk_... or cl_test_sk_...
-    os.environ["CLARIAN_WORKSPACE_ID"],  # workspace UUID
+clarian = Clarian(
+    os.environ["CLARIAN_API_KEY"],  # cl_test_sk_... (sandbox) or cl_live_sk_... (live)
+    os.environ["CLARIAN_WORKSPACE_ID"],
 )
-# cl_test_sk_ -> sandbox; cl_live_sk_ (and any other prefix) -> production/live.
-# Override with base_url="..." or timeout=60.
 
-client.ping()
-
-# Receive BRL via PIX (Idempotency-Key is sent automatically).
-charge = client.cash_in.create(
-    {
-        "amount": 250.00,
-        "payer": {
-            "name": "Maria Silva",
-            "document_number": "12345678900",
-        },
-        "description": "Order #1234",
-    },
-    "order-1234",
-)
-print(charge["order"]["pix"]["copy_paste"])
-
-# Send BRL via PIX (idempotency key required; retries never double-send).
-payout = client.cash_out.create(
-    {"amount": 100.00},
-    "withdrawal-2026-07-01-001",
-)
-print(payout["order"]["id"], payout["order"]["status"])
-
-# Optional: preview a PIX key owner before paying out.
-info = client.cash_out.dict_check("maria@example.com", "EMAIL")
-
-balances = client.balances.list()
+clarian.ping()
+balances = clarian.balances.list()
 ```
 
-Auth headers (set automatically): `Authorization: Bearer <key>` and `X-Workspace-Id: <uuid>`.
+The key prefix picks the environment: `cl_test_sk_` calls `/v1/test`, `cl_live_sk_` calls `/v1/live`. Pass `base_url=` to point at another origin. Create keys in the dashboard under Negócios > API (needs 2FA). Give each key only the permissions it uses.
 
-## Environments
+## Amounts
 
-| Key prefix       | Base URL                                                    |
-|------------------|-------------------------------------------------------------|
-| `cl_test_sk_…`   | `https://api.clarian.finance/functions/v1/api-gateway/test` |
-| `cl_live_sk_…`   | `https://api.clarian.finance/functions/v1/api-gateway/live` |
-| any other prefix | **live** (same as `cl_live_sk_…`); not rejected             |
-
-Only the `cl_test_sk_` prefix selects sandbox. Unknown prefixes default to live so a mis-typed key can hit production; pass `base_url` when you need an explicit host.
-
-## Error handling
-
-Non-2xx responses raise `ClarianError` with `status`, `code` (JSON `error` when present), `message`, and `meta`. The exception text truncates the raw body to 500 characters.
+Every amount is an integer in minor units, sent and returned as a string. BRL has scale 2 (R$ 10,00 is `"1000"`), USDT and USDC scale 6 (1 USDT is `"1000000"`). Pass a `str` or `int`; a `float` anywhere in a request body raises `TypeError`. Balances carry their `scale`.
 
 ```python
-from clarian import Clarian, ClarianError
+brl = next(b for b in balances if b["currency"] == "BRL" and b["kind"] == "available")
+# brl["balance_minor"] = "1250050", brl["scale"] = 2 -> R$ 12.500,50
+```
+
+## Cash-in (receive PIX)
+
+```python
+charge = clarian.pix.payins.create({"amount_minor": "25000", "currency": "BRL"}, "order-981")
+charge["pix_qr_code"]  # copia-e-cola for the payer
+# later, or from the webhook:
+paid = clarian.pix.payins.retrieve(charge["id"])
+```
+
+The QR is valid for 30 minutes. The balance moves from `pending` to `available` when the PIX settles.
+
+## Cash-out (send PIX)
+
+```python
+fee = clarian.pix.payouts.fee({"amount_minor": "10000"})  # fee_minor, debit_minor
+payout = clarian.pix.payouts.create(
+    {"amount_minor": "10000", "currency": "BRL", "pix_key": "settlement@yourcompany.com"},
+    "withdrawal-2026-10-10-001",
+)
+```
+
+Over the API, the money goes to your workspace's registered settlement key. Register it once in the dashboard; until then the call answers 403 `settlement_key_required`. Amount plus fee leave `available` at once and return if the PIX fails.
+
+## Quote and convert
+
+The direction is always `base_currency` -> `quote_currency`: you pay `base_amount_minor` of the base and receive the quote currency.
+
+```python
+# Buy USDT with R$ 500,00
+quote = clarian.conversions.quote({"base_currency": "BRL", "quote_currency": "USDT", "base_amount_minor": "50000"})
+quote["quote_amount_minor"]  # USDT you receive (scale 6), after fees
+quote["expires_at"]          # execute before this
+
+result = clarian.conversions.execute(quote["id"])
+result.get("ledger")  # settled amounts; absent while result["status"] == "processing"
+```
+
+A quote converts once: a second execute is 409 `quote_not_open`, an expired one 410 `quote_expired`. `execute` is never retried automatically; after a lost reply, check `transactions.list()`. To sell USDT for BRL, swap the currencies.
+
+## Wallets and crypto
+
+```python
+wallets = clarian.wallets.list()
+clarian.wallets.balance(wallets[0]["id"])
+clarian.crypto.networks()
+# API keys send only to wallets registered in the dashboard whitelist (403 destination_not_whitelisted).
+clarian.crypto.send({"amount_minor": "5000000", "currency": "USDT", "network": "polygon", "to_address": "0x..."}, "send-17")
+```
+
+## Customers, KYC and sub-accounts
+
+```python
+customer = clarian.customers.create({"kind": "person", "display_name": "Maria Silva", "document_type": "cpf", "document_number": "52998224725"})
+clarian.kyc.create({"party_id": customer["id"]})
+
+sub = clarian.subaccounts.create({"display_name": "Store 12"})
+store = clarian.for_subaccount(sub["id"])  # every call acts on that sub-account
+store.pix.payins.create({"amount_minor": "1000"}, "store12-order-1")
+```
+
+## Payment links
+
+```python
+link = clarian.payment_links.create({"amount_minor": "4990", "currency": "BRL", "description": "Plano mensal"})
+page = clarian.payment_links.payments(limit=50)  # {"items": [...], "next_cursor": ...}
+```
+
+## Webhooks
+
+```python
+hook = clarian.webhooks.create({"url": "https://example.com/clarian", "events": ["payment.completed", "payment.failed"]})
+hook["secret"]  # shown only here: store it
+clarian.webhooks.test(hook["id"])  # sandbox key: sends a signed test.ping
+```
+
+Verify every delivery on the raw body before trusting it:
+
+```python
+from clarian import construct_webhook_event
+
+# Flask
+@app.post("/clarian")
+def clarian_webhook():
+    event = construct_webhook_event(request.get_data(), request.headers, os.environ["CLARIAN_WEBHOOK_SECRET"])
+    if event["type"] == "payment.completed":
+        data = event["data"]  # payment_id, kind, amount_minor, currency
+    return "", 204
+```
+
+`construct_webhook_event` raises `ValueError` on a bad signature or timestamp. The signature is HMAC-SHA256 hex of `f"{x-clarian-timestamp}.{raw_body}"`; deliveries older than 5 minutes, or with an unparseable timestamp, are refused. Dedupe on `event["id"]` and answer 2xx fast. Failed deliveries are listed in `webhooks.deliveries()`. `webhooks.test()` and `webhooks.resend(id)` work with a sandbox key only; in live, reconcile missed events with `transactions.list()`.
+
+## Sandbox
+
+With a `cl_test_sk_` key nothing reaches a bank or chain. Settle or fail anything pending:
+
+```python
+clarian.pix.payins.simulate(charge["id"])  # completed
+clarian.pix.payouts.simulate(payout["id"], {"status": "failed", "reason": "test"})
+clarian.crypto.simulate(send["id"])
+```
+
+## Errors, retries and idempotency
+
+Non-2xx replies raise `ClarianError` with `status`, the API's stable `code` and any extra fields in `meta`:
+
+```python
+from clarian import ClarianError
 
 try:
-    client.cash_out.create({"amount": 100.00}, "payout-inv-42")
+    clarian.pix.payouts.create({"amount_minor": "10000", "pix_key": "x"}, "w-1")
 except ClarianError as e:
-    print(e.status, e.code, e.message, e.meta)
+    if e.code == "insufficient_balance":
+        ...
 ```
 
-## Verifying webhooks
+Money-moving creates (`pix.payins.create`, `pix.payouts.create`, `crypto.send`, `payment_links.charge`, `checkout.pay`) require an idempotency key; an empty one raises `ValueError` before any request. Retrying with the same key returns the same payment and never pays twice. The SDK retries 429/502/503/504 and network errors up to `max_retries` (default 2), honoring `Retry-After`, but only reads, deletes and calls that carry an idempotency key. The API allows 120 requests per minute per key.
 
-Deliveries are signed with **HMAC-SHA256** (hex) over `` `{X-Clarian-Timestamp}.{rawBody}` `` using the full `whsec_…` secret (prefix included; do not strip it). Reject timestamps older than **5 minutes** (replay protection).
+## Not on the API
 
-```python
-from clarian.webhooks import extract_headers, verify_signature
-# or: from clarian import extract_headers, verify_signature
+Actions that need a person's own second factor stay in the dashboard: inviting or changing team members, voting on approvals, creating or rotating API keys, saving payout accounts and whitelist entries, and changing workspace settings. Their read endpoints are in the SDK.
 
-def handle(raw_body: bytes, headers: dict) -> None:
-    secret = os.environ["CLARIAN_WEBHOOK_SECRET"]  # whsec_...
-    timestamp, signature = extract_headers(headers)
-    if not verify_signature(raw_body, timestamp, signature, secret):
-        raise PermissionError("invalid webhook signature")
-    # process JSON body...
-```
+## Reference
 
-For local handler tests, sign a payload the same way the server does:
+| Area | Methods |
+|---|---|
+| `balances` | `list` |
+| `pix.payins` | `create`, `retrieve`, `simulate` |
+| `pix.payouts` | `create`, `retrieve`, `fee`, `lookup`, `simulate`, `list_accounts` |
+| `conversions` | `quote`, `execute`, `prices` |
+| `wallets` | `list`, `create`, `retrieve`, `balance`, `transactions` |
+| `crypto` | `send`, `simulate`, `networks` |
+| `transactions` | `list`, `retrieve`, `statement` |
+| `customers` | `list`, `create`, `retrieve`, `update` |
+| `kyc` | `list`, `create`, `retrieve`, `list_rfi`, `answer_rfi` |
+| `webhooks` | `list`, `create`, `retrieve`, `update`, `delete`, `test`, `deliveries`, `resend` |
+| `payment_links` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replace_splits`, `charge` |
+| `checkout` | `retrieve`, `pay` |
+| `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions` |
+| `whitelist`, `bank_accounts`, `api_keys`, `settings`, `notifications`, `team`, `approvals` | read |
+| `workflows`, `treasury` | `list`, `create` (+ `workflows.runs`) |
 
-```python
-from clarian import sign_payload
-
-sig = sign_payload(secret, timestamp, raw_body)
-```
-
-Create a subscription (secret shown **once**):
-
-```python
-sub = client.webhooks.create({
-    "url": "https://example.com/webhooks/clarian",
-    "events": ["pix_payin.completed", "pix_payout.completed"],
-})
-# store sub["secret"] immediately; it is never returned again
-print(sub["id"], sub["secret"])
-```
-
-## Sandbox testing
-
-Sandbox helpers live on `client.sandbox`. They require a `cl_test_sk_…` key and raise `ValueError` for live keys **before** any HTTP call. Outside the test environment the gateway returns `404 {error:"sandbox_only"}`.
-
-```python
-# Advance a pending cash-in (empty/None status -> completed).
-order = client.sandbox.simulate_cash_in(charge["order"]["id"], "completed")
-# status: "completed" | "expired" | "failed"
-
-# Advance a cash-out: "completed" | "failed"
-client.sandbox.simulate_cash_out(payout["order"]["id"], "failed")
-
-# Enqueue a sample webhook for a subscription.
-from clarian import EVENT_PIX_PAYIN_COMPLETED
-
-result = client.sandbox.send_webhook_event(sub["id"], EVENT_PIX_PAYIN_COMPLETED)
-new_id = client.sandbox.resend_webhook_delivery(result["delivery_id"])
-```
-
-### Magic PIX keys
-
-| Constant / key            | Sandbox payout behavior                         |
-|---------------------------|-------------------------------------------------|
-| `SANDBOX_FAIL_PIX_KEY`    | `fail@sandbox.clarian` (fails + refund)         |
-| `SANDBOX_PENDING_PIX_KEY` | `pending@sandbox.clarian` (stays pending until simulated) |
-
-```python
-from clarian import SANDBOX_FAIL_PIX_KEY
-
-client.cash_out.create(
-    {"amount": 10.00, "pix_key": SANDBOX_FAIL_PIX_KEY},
-    "payout-fail-1",
-)
-```
-
-Sample event type constants: `EVENT_PIX_PAYIN_CREATED`, `EVENT_PIX_PAYIN_COMPLETED`, `EVENT_PIX_PAYIN_EXPIRED`, `EVENT_PIX_PAYOUT_CREATED`, `EVENT_PIX_PAYOUT_COMPLETED`, `EVENT_PIX_PAYOUT_FAILED`, `EVENT_CHECKOUT_PAID`.
-
-## API surface
-
-| Method | Path | Client |
-|--------|------|--------|
-| `GET` | `/ping` | `client.ping()` |
-| `POST` | `/cash-in/pix` | `client.cash_in.create(params, idempotency_key)` |
-| `GET` | `/cash-in/{id}` | `client.cash_in.retrieve(id)` |
-| `POST` | `/pix/payouts/dict` | `client.cash_out.dict_check(pix_key, key_type=None)` |
-| `POST` | `/cash-out/pix` | `client.cash_out.create(params, idempotency_key)` |
-| `GET` | `/cash-out/{id}` | `client.cash_out.retrieve(id)` |
-| `GET` | `/account/balances` | `client.balances.list()` |
-| `GET` | `/transactions` | `client.transactions.list(...)` |
-| `GET` | `/transactions/{id}` | `client.transactions.retrieve(id)` |
-| `GET` | `/wallets` | `client.wallets.list(network=None)` |
-| `GET` | `/wallets/{id}/balance` | `client.wallets.retrieve_balance(id)` |
-| | webhooks CRUD | `client.webhooks.create/list/update/delete` |
-| | verify delivery | `verify_signature` / `extract_headers` / `sign_payload` |
-| `POST` | `/pix/payins/{id}/simulate` | `client.sandbox.simulate_cash_in(id, status)` |
-| `POST` | `/pix/payouts/{id}/simulate` | `client.sandbox.simulate_cash_out(id, status)` |
-| `POST` | `/webhooks/{id}/test` | `client.sandbox.send_webhook_event(id, event_type)` |
-| `POST` | `/webhooks/deliveries/{id}/resend` | `client.sandbox.resend_webhook_delivery(id)` |
+Field names and shapes are in the OpenAPI reference (`openapi.json`, also at `https://app.clarian.finance/openapi.json`).
 
 ## Development
 
 ```bash
-# from repo root
-python3 -m unittest discover -s python/tests -t python
+python3 -m venv .venv && .venv/bin/pip install pytest
+.venv/bin/python -m pytest
+CLARIAN_API_KEY=cl_test_sk_... CLARIAN_WORKSPACE_ID=... CLARIAN_BASE_URL=http://localhost:3000 .venv/bin/python e2e/sandbox.py
 ```

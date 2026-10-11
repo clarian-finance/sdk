@@ -2,355 +2,188 @@ package clarian
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
-func TestNew_envInference(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name   string
-		apiKey string
-		want   string
-	}{
-		{"test prefix", "cl_test_sk_abc", BaseURLTest},
-		{"live prefix", "cl_live_sk_abc", BaseURLLive},
-		{"unknown defaults live", "other_key", BaseURLLive},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			c := New(tc.apiKey, "ws")
-			if c.baseURL != tc.want {
-				t.Fatalf("baseURL = %q, want %q", c.baseURL, tc.want)
-			}
-		})
-	}
-}
+const testKey = "cl_test_sk_abc"
 
-func TestNew_WithBaseURLOverrides(t *testing.T) {
-	t.Parallel()
-	c := New("cl_test_sk_x", "ws", WithBaseURL("http://localhost:9999/v1/"))
-	if c.baseURL != "http://localhost:9999/v1" {
-		t.Fatalf("baseURL = %q", c.baseURL)
-	}
-}
-
-func TestAuthHeadersOnEveryCall(t *testing.T) {
-	t.Parallel()
-	var gotAuth, gotWS, gotMethod, gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		gotWS = r.Header.Get("X-Workspace-Id")
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		_, _ = w.Write([]byte(`{"ok":true,"environment":"sandbox","master_account_id":"m1"}`))
+func server(t *testing.T, h http.HandlerFunc) (*Client, *int32) {
+	var hits int32
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		h(w, r)
 	}))
-	t.Cleanup(srv.Close)
+	t.Cleanup(s.Close)
+	c, err := New(testKey, "ws_1", WithBaseURL(s.URL+"/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c, &hits
+}
 
-	c := New("cl_test_sk_key", "ws-uuid", WithBaseURL(srv.URL))
-	if _, err := c.Ping(context.Background()); err != nil {
-		t.Fatalf("Ping: %v", err)
+func TestEnvironmentFromKey(t *testing.T) {
+	if _, err := New("bad", "ws"); err == nil {
+		t.Fatal("bad key accepted")
 	}
-	if gotAuth != "Bearer cl_test_sk_key" {
-		t.Errorf("Authorization = %q", gotAuth)
+	if _, err := New(testKey, ""); err == nil {
+		t.Fatal("empty workspace accepted")
 	}
-	if gotWS != "ws-uuid" {
-		t.Errorf("X-Workspace-Id = %q", gotWS)
-	}
-	if gotMethod != http.MethodGet || gotPath != "/ping" {
-		t.Errorf("request = %s %s", gotMethod, gotPath)
+	c, _ := New("cl_live_sk_x", "ws")
+	if c.Environment() != "live" || c.env != "live" {
+		t.Fatal("live env")
 	}
 }
 
-func TestCashInCreate_idempotencyAndPayer(t *testing.T) {
-	t.Parallel()
-	var gotIdem, gotBody string
-	var gotAuth, gotWS string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		gotWS = r.Header.Get("X-Workspace-Id")
-		gotIdem = r.Header.Get("Idempotency-Key")
-		raw, _ := io.ReadAll(r.Body)
-		gotBody = string(raw)
-		if r.URL.Path != "/cash-in/pix" || r.Method != http.MethodPost {
-			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
-		}
-		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"ok":true,"environment":"sandbox","order":{"id":"ord_1","status":"pending","amount":19.50,"currency":"BRL","pix":{"qr_code":"qr","copy_paste":"brcode","end_to_end_id":null},"fee":0.50}}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("cl_test_sk_x", "ws-uuid", WithBaseURL(srv.URL))
-	res, err := c.CashIn.Create(context.Background(), "pay-ext-1", CashInRequest{
-		Amount: json.Number("19.50"),
-		Payer:  Payer{Name: "Ana", DocumentNumber: "52998224725"},
+func TestRequestHeadersAndUnwrap(t *testing.T) {
+	var got *http.Request
+	var body string
+	c, _ := server(t, func(w http.ResponseWriter, r *http.Request) {
+		got = r
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		w.Write([]byte(`{"data":{"id":"p_1","amount_minor":"10000"}}`))
 	})
+	amt, _ := new(big.Int).SetString("123456789012345678901234567890", 10)
+	p, err := c.ForSubaccount("sub_9").Pix.Payins.Create(context.Background(), Row{"amount_minor": amt, "currency": "BRL"}, "idem-1")
 	if err != nil {
-		t.Fatalf("Create: %v", err)
+		t.Fatal(err)
 	}
-	if res.Order.ID != "ord_1" || res.Order.Status != TxStatusPending {
-		t.Fatalf("order = %+v", res.Order)
+	if p["id"] != "p_1" {
+		t.Fatalf("unwrap: %v", p)
 	}
-	if res.Order.Pix.CopyPaste == nil || *res.Order.Pix.CopyPaste != "brcode" {
-		t.Fatalf("pix = %+v", res.Order.Pix)
+	if got.URL.Path != "/v1/test/pix/payins" || got.Method != "POST" {
+		t.Fatalf("url %s %s", got.Method, got.URL.Path)
 	}
-	if gotAuth != "Bearer cl_test_sk_x" || gotWS != "ws-uuid" {
-		t.Errorf("auth headers: %q %q", gotAuth, gotWS)
+	for k, v := range map[string]string{"Authorization": "Bearer " + testKey, "X-Workspace-Id": "ws_1",
+		"X-Subaccount-Id": "sub_9", "Idempotency-Key": "idem-1", "Content-Type": "application/json"} {
+		if got.Header.Get(k) != v {
+			t.Errorf("header %s = %q", k, got.Header.Get(k))
+		}
 	}
-	if gotIdem != "pay-ext-1" {
-		t.Errorf("Idempotency-Key = %q", gotIdem)
-	}
-
-	var body map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(gotBody), &body); err != nil {
-		t.Fatalf("body: %v", err)
-	}
-	if string(body["amount"]) != "19.50" {
-		t.Errorf("amount wire = %s, want number 19.50", body["amount"])
-	}
-	var payer Payer
-	if err := json.Unmarshal(body["payer"], &payer); err != nil {
-		t.Fatalf("payer: %v", err)
-	}
-	if payer.Name != "Ana" || payer.DocumentNumber != "52998224725" {
-		t.Errorf("payer = %+v", payer)
+	if body != `{"amount_minor":"123456789012345678901234567890","currency":"BRL"}` {
+		t.Fatalf("body %s", body)
 	}
 }
 
-func TestCashOutCreate_idempotencyAndPixKeyType(t *testing.T) {
-	t.Parallel()
-	var gotIdem, gotBody string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotIdem = r.Header.Get("Idempotency-Key")
-		raw, _ := io.ReadAll(r.Body)
-		gotBody = string(raw)
-		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"ok":true,"environment":"sandbox","order":{"id":"out_9","status":"processing","amount":10.00}}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("cl_test_sk_x", "ws", WithBaseURL(srv.URL))
-	out, err := c.CashOut.Create(context.Background(), "repasse-1", CashOutRequest{
-		Amount:     json.Number("10.00"),
-		PixKey:     "abc-key",
-		PixKeyType: PixKeyEVP,
+func TestIntAmountAsStringAndFloatRefused(t *testing.T) {
+	var body string
+	c, hits := server(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		w.Write([]byte(`{"data":{}}`))
 	})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
+	if _, err := c.Pix.Payouts.Fee(context.Background(), Row{"amount_minor": 1000}); err != nil || body != `{"amount_minor":"1000"}` {
+		t.Fatalf("int amount: %v %s", err, body)
 	}
-	if out.Order.ID != "out_9" || out.Order.Status != TxStatusProcessing {
-		t.Fatalf("order = %+v", out.Order)
-	}
-	if gotIdem != "repasse-1" {
-		t.Errorf("Idempotency-Key = %q", gotIdem)
-	}
-	if !strings.Contains(gotBody, `"pix_key_type":"EVP"`) {
-		t.Errorf("body missing EVP: %s", gotBody)
-	}
-	if !strings.Contains(gotBody, `"amount":10.00`) && !strings.Contains(gotBody, `"amount":10`) {
-		t.Errorf("amount not numeric: %s", gotBody)
+	if _, err := c.Pix.Payouts.Fee(context.Background(), Row{"amount_minor": 10.5}); err == nil || *hits != 1 {
+		t.Fatal("float accepted")
 	}
 }
 
-func TestCashInGet(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/cash-in/ord_paid" {
-			t.Errorf("path = %s", r.URL.Path)
-		}
-		_, _ = w.Write([]byte(`{"ok":true,"order":{"id":"ord_paid","status":"completed","amount":19.50}}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("cl_live_sk_x", "ws", WithBaseURL(srv.URL))
-	res, err := c.CashIn.Get(context.Background(), "ord_paid")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
+func TestQueryAndNoKeyHeaders(t *testing.T) {
+	var got *http.Request
+	c, _ := server(t, func(w http.ResponseWriter, r *http.Request) { got = r; w.Write([]byte(`{"data":[]}`)) })
+	if _, err := c.Transactions.List(context.Background(), Params{"limit": "5", "before": ""}); err != nil {
+		t.Fatal(err)
 	}
-	if res.Order.Status != TxStatusCompleted {
-		t.Fatalf("status = %s", res.Order.Status)
+	if got.URL.RawQuery != "limit=5" || got.Header.Get("Idempotency-Key") != "" || got.Header.Get("X-Subaccount-Id") != "" {
+		t.Fatalf("query %q headers %v", got.URL.RawQuery, got.Header)
 	}
 }
 
-func TestBalancesList(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/account/balances" {
-			t.Errorf("path = %s", r.URL.Path)
-		}
-		_, _ = w.Write([]byte(`{"ok":true,"balances":[{"currency":"BRL","available":100.50,"pending":0,"locked":0}]}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("cl_test_sk_x", "ws", WithBaseURL(srv.URL))
-	bals, err := c.Balances.List(context.Background())
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if len(bals) != 1 || bals[0].Currency != "BRL" || bals[0].Available != "100.50" {
-		t.Fatalf("balances = %+v", bals)
+func TestErrorMapping(t *testing.T) {
+	c, _ := server(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(422)
+		w.Write([]byte(`{"error":"insufficient_balance","message":"not enough","available":"5"}`))
+	})
+	_, err := c.Balances.List(context.Background())
+	var e *Error
+	if !errors.As(err, &e) || e.Status != 422 || e.Code != "insufficient_balance" || e.Message != "not enough" || e.Meta["available"] != "5" {
+		t.Fatalf("got %#v", err)
 	}
 }
 
-func TestTransactionsListAndGet(t *testing.T) {
-	t.Parallel()
-	mux := http.NewServeMux()
-	mux.HandleFunc("/transactions/", func(w http.ResponseWriter, r *http.Request) {
-		id := strings.TrimPrefix(r.URL.Path, "/transactions/")
-		_, _ = w.Write([]byte(`{"transaction":{"id":"` + id + `","type":"pix_in","status":"completed","amount":10,"fee":0.1,"currency":"BRL","created_at":"t","updated_at":"t"}}`))
-	})
-	mux.HandleFunc("/transactions", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("type") != "pix_in" || r.URL.Query().Get("limit") != "20" {
-			t.Errorf("query = %s", r.URL.RawQuery)
-		}
-		_, _ = w.Write([]byte(`{"transactions":[{"id":"tx1","type":"pix_in","status":"completed","amount":10,"fee":0,"currency":"BRL","created_at":"t","updated_at":"t"}]}`))
-	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-
-	c := New("cl_test_sk_x", "ws", WithBaseURL(srv.URL))
-	list, err := c.Transactions.List(context.Background(), ListTransactionsParams{Type: "pix_in", Limit: 20})
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if len(list) != 1 || list[0].ID != "tx1" {
-		t.Fatalf("list = %+v", list)
-	}
-	tx, err := c.Transactions.Get(context.Background(), "tx-99")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if tx.ID != "tx-99" {
-		t.Fatalf("tx = %+v", tx)
-	}
-}
-
-func TestWebhooksCRUD(t *testing.T) {
-	t.Parallel()
-	// Fixtures match live api-gateway wrappers (subscription/secret siblings).
-	mux := http.NewServeMux()
-	mux.HandleFunc("/webhooks/", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			_, _ = w.Write([]byte(`{"ok":true,"environment":"sandbox","subscription":{"id":"wh1","url":"https://ex.com","events":["pix_payin.completed"],"is_active":true,"description":null,"environment":"sandbox","created_at":"t","updated_at":"t2"}}`))
-		case http.MethodPatch:
-			_, _ = w.Write([]byte(`{"ok":true,"environment":"sandbox","subscription":{"id":"wh1","url":"https://ex.com/v2","events":["pix_payin.completed"],"is_active":false,"description":null,"environment":"sandbox","created_at":"t","updated_at":"t3"}}`))
-		case http.MethodDelete:
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"ok":true}`))
-		default:
-			t.Errorf("method %s", r.Method)
-		}
-	})
-	mux.HandleFunc("/webhooks", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			_, _ = w.Write([]byte(`{"ok":true,"environment":"sandbox","subscriptions":[{"id":"wh1","url":"https://ex.com","events":["pix_payin.completed"],"is_active":true,"created_at":"t","updated_at":"t2"}]}`))
-		case http.MethodPost:
-			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"ok":true,"environment":"sandbox","subscription":{"id":"wh1","url":"https://ex.com","events":["pix_payin.completed"],"is_active":true,"description":null,"environment":"sandbox","created_at":"t","updated_at":"t"},"secret":"whsec_abc"}`))
-		default:
-			t.Errorf("method %s", r.Method)
-		}
-	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-
-	c := New("cl_test_sk_x", "ws", WithBaseURL(srv.URL))
+func TestRetryRules(t *testing.T) {
 	ctx := context.Background()
+	fail := func(w http.ResponseWriter, r *http.Request) { w.Header().Set("Retry-After", "0"); w.WriteHeader(503) }
 
-	created, err := c.Webhooks.Create(ctx, WebhookInput{URL: "https://ex.com", Events: []string{"pix_payin.completed"}})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
+	c, hits := server(t, fail)
+	if _, err := c.Balances.List(ctx); err == nil || *hits != 3 {
+		t.Fatalf("GET retried: hits=%d", *hits)
 	}
-	if created.Secret != "whsec_abc" || created.ID != "wh1" {
-		t.Fatalf("created = %+v secret=%q", created.Webhook, created.Secret)
+	c, hits = server(t, fail)
+	c.Customers.Create(ctx, Row{"kind": "person"})
+	if *hits != 1 {
+		t.Fatalf("POST without key retried: %d", *hits)
 	}
-
-	subs, err := c.Webhooks.List(ctx)
-	if err != nil || len(subs) != 1 {
-		t.Fatalf("List: %v %+v", err, subs)
+	c, hits = server(t, fail)
+	c.Conversions.Execute(ctx, "q_1")
+	if *hits != 1 {
+		t.Fatalf("execute retried: %d", *hits)
 	}
-	got, err := c.Webhooks.Get(ctx, "wh1")
-	if err != nil || got.ID != "wh1" || got.UpdatedAt != "t2" {
-		t.Fatalf("Get: %v %+v", err, got)
+	c, hits = server(t, fail)
+	c.Pix.Payouts.Create(ctx, Row{"amount_minor": "1"}, "k")
+	if *hits != 3 {
+		t.Fatalf("keyed POST not retried: %d", *hits)
 	}
-	active := false
-	upd, err := c.Webhooks.Update(ctx, "wh1", WebhookInput{URL: "https://ex.com/v2", Events: []string{"pix_payin.completed"}, IsActive: &active})
-	if err != nil || upd.IsActive || upd.URL != "https://ex.com/v2" {
-		t.Fatalf("Update: %v %+v", err, upd)
-	}
-	if err := c.Webhooks.Delete(ctx, "wh1"); err != nil {
-		t.Fatalf("Delete: %v", err)
+	var n int32
+	c, _ = server(t, func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&n, 1) == 1 {
+			fail(w, r)
+			return
+		}
+		w.Write([]byte(`{"data":[{"currency":"BRL"}]}`))
+	})
+	if rows, err := c.Balances.List(ctx); err != nil || len(rows) != 1 {
+		t.Fatalf("recovered: %v %v", rows, err)
 	}
 }
 
-func TestAPIError_jsonCode(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusPaymentRequired)
-		_, _ = w.Write([]byte(`{"error":"insufficient_balance","detail":"saldo insuficiente"}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("cl_test_sk_x", "ws", WithBaseURL(srv.URL))
-	_, err := c.CashOut.Create(context.Background(), "idem", CashOutRequest{Amount: json.Number("100")})
-	if err == nil {
-		t.Fatal("expected error")
+func TestIdempotencyKeyRequired(t *testing.T) {
+	c, hits := server(t, func(w http.ResponseWriter, r *http.Request) {})
+	ctx := context.Background()
+	calls := []func() error{
+		func() error { _, e := c.Pix.Payins.Create(ctx, Row{}, ""); return e },
+		func() error { _, e := c.Pix.Payouts.Create(ctx, Row{}, ""); return e },
+		func() error { _, e := c.Crypto.Send(ctx, Row{}, ""); return e },
+		func() error { _, e := c.PaymentLinks.Charge(ctx, "l", Row{}, ""); return e },
+		func() error { _, e := c.Checkout.Pay(ctx, "s", Row{}, ""); return e },
 	}
-	var apiErr *APIError
-	if !errors.As(err, &apiErr) {
-		t.Fatalf("want *APIError, got %T %v", err, err)
+	for i, f := range calls {
+		if !errors.Is(f(), ErrIdempotencyKeyRequired) {
+			t.Errorf("call %d accepted empty key", i)
+		}
 	}
-	if apiErr.Status != 402 || apiErr.Code != "insufficient_balance" {
-		t.Fatalf("apiErr = %+v", apiErr)
-	}
-	if !strings.Contains(apiErr.Body, "insufficient_balance") {
-		t.Errorf("Body = %q", apiErr.Body)
+	if *hits != 0 {
+		t.Fatal("network call made")
 	}
 }
 
-func TestAPIError_nonJSONBody(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte(`rate limited`))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("cl_test_sk_x", "ws", WithBaseURL(srv.URL))
-	err := c.do(context.Background(), http.MethodGet, "/ping", "", nil, nil)
-	if err == nil {
-		t.Fatal("expected error")
+func TestWebhookVerify(t *testing.T) {
+	body := []byte(`{"id":"ev_1","type":"payment.completed","created_at":"x","data":{"payment_id":"p_1","amount_minor":"100"}}`)
+	ts := time.Now().UTC().Format(time.RFC3339Nano)
+	h := http.Header{}
+	h.Set("X-Clarian-Timestamp", ts)
+	h.Set("X-Clarian-Signature", SignWebhookPayload(body, ts, "sec"))
+	ev, err := ConstructWebhookEvent(body, h, "sec")
+	if err != nil || ev.ID != "ev_1" || ev.Type != "payment.completed" || ev.Data["payment_id"] != "p_1" {
+		t.Fatalf("valid: %v %+v", err, ev)
 	}
-	var apiErr *APIError
-	if !errors.As(err, &apiErr) {
-		t.Fatalf("want *APIError, got %T %v", err, err)
+	if _, err := ConstructWebhookEvent(body, h, "other"); !errors.Is(err, ErrInvalidWebhook) {
+		t.Fatal("bad signature accepted")
 	}
-	if apiErr.Status != 429 || apiErr.Code != "" || apiErr.Body != "rate limited" {
-		t.Fatalf("apiErr = %+v", apiErr)
+	old := time.Now().Add(-301 * time.Second).UTC().Format(time.RFC3339)
+	if VerifyWebhookSignature(body, SignWebhookPayload(body, old, "sec"), old, "sec", DefaultWebhookTolerance) {
+		t.Fatal("stale accepted")
 	}
-}
-
-func TestDo_doesNotSetIdempotencyOnGET(t *testing.T) {
-	t.Parallel()
-	var gotIdem string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotIdem = r.Header.Get("Idempotency-Key")
-		_, _ = w.Write([]byte(`{"ok":true,"order":{"id":"x","status":"pending"}}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := New("cl_test_sk_x", "ws", WithBaseURL(srv.URL))
-	if _, err := c.CashIn.Get(context.Background(), "x"); err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if gotIdem != "" {
-		t.Errorf("unexpected Idempotency-Key on GET: %q", gotIdem)
+	if VerifyWebhookSignature(body, SignWebhookPayload(body, "garbage", "sec"), "garbage", "sec", DefaultWebhookTolerance) {
+		t.Fatal("unparseable timestamp accepted")
 	}
 }

@@ -1,8 +1,8 @@
 {
   "name": "clarian-finance/sdk-php",
-  "description": "Official PHP SDK for the Clarian Finance API",
+  "description": "Official PHP SDK for the Clarian Finance API v2",
   "type": "library",
-  "version": "0.4.1",
+  "version": "1.0.0",
   "license": "MIT",
   "require": {
     "php": ">=8.1",
@@ -13,16 +13,13 @@
     "phpunit/phpunit": "^10.5"
   },
   "autoload": {
-    "psr-4": {
-      "Clarian\\": "src/"
-    }
+    "classmap": ["src/"]
   },
   "autoload-dev": {
-    "psr-4": {
-      "Clarian\\Tests\\": "tests/"
-    }
+    "classmap": ["tests/"]
   },
   "scripts": {
-    "test": "phpunit tests"
+    "test": "phpunit",
+    "e2e": "php e2e/sandbox.php"
   }
 }

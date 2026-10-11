@@ -1,229 +1,192 @@
 # clarian-finance/sdk-php
 
-Official PHP SDK for the [Clarian Finance API](https://api.clarian.finance). PIX cash-in/cash-out, balances, wallets, transactions, and webhooks.
-
-Package: `clarian-finance/sdk-php` · namespace `Clarian\` · **no third-party runtime dependencies** (curl + json extensions only). Requires PHP 8.1+.
+PHP SDK for the Clarian API v2: PIX cash-in and cash-out, BRL/stablecoin quotes and conversion, wallets and crypto sends, customers and KYC, payment links, sub-accounts and webhooks. PHP 8.1+, `ext-curl` and `ext-json`, no other runtime dependencies.
 
 ## Install
 
-Until the package is published on Packagist, install from this monorepo with a Composer [path repository](https://getcomposer.org/doc/05-repositories.md#path). Composer VCS repositories do not support Git subdirectories, so a path (or path-style) install is required.
-
 ```bash
-# clone the monorepo (or use a sibling checkout)
-git clone https://github.com/clarian-finance/sdk.git
-
-# in your app composer.json:
-{
-  "repositories": [
-    {
-      "type": "path",
-      "url": "../sdk/php"
-    }
-  ],
-  "require": {
-    "clarian-finance/sdk-php": "0.4.1"
-  }
-}
+composer config repositories.clarian vcs https://github.com/clarian-finance/sdk
+composer require clarian-finance/sdk-php:^2.0
 ```
 
-Then:
-
-```bash
-composer update clarian-finance/sdk-php
-```
-
-Adjust the path so it points at the `php/` directory of your local clone.
-
-**Plan:** once published on Packagist as `clarian-finance/sdk-php`, install with:
-
-```bash
-composer require clarian-finance/sdk-php
-```
-
-## Quickstart
+## Quick start
 
 ```php
-<?php
+use Clarian\Clarian;
 
-use Clarian\Client;
-
-$client = new Client(
-    getenv('CLARIAN_API_KEY'),       // cl_live_sk_... or cl_test_sk_...
-    getenv('CLARIAN_WORKSPACE_ID'),  // workspace UUID
+$clarian = new Clarian(
+    apiKey: getenv('CLARIAN_API_KEY'),           // cl_test_sk_... (sandbox) or cl_live_sk_... (live)
+    workspaceId: getenv('CLARIAN_WORKSPACE_ID'),
 );
-// cl_test_sk_ -> sandbox; cl_live_sk_ (and any other prefix) -> production/live.
-// Override with baseUrl: new Client($key, $ws, 'https://...');
-// Timeout seconds: new Client($key, $ws, null, 60.0);
 
-$client->ping();
-
-// Receive BRL via PIX (Idempotency-Key is sent automatically).
-$charge = $client->cashIn->create([
-    'amount' => 250.00,
-    'payer' => [
-        'name' => 'Maria Silva',
-        'document_number' => '12345678900',
-    ],
-    'description' => 'Order #1234',
-], 'order-1234');
-echo $charge['order']['pix']['copy_paste'], "\n";
-
-// Send BRL via PIX (idempotency key required; retries never double-send).
-$payout = $client->cashOut->create(
-    ['amount' => 100.00],
-    'withdrawal-2026-07-01-001',
-);
-echo $payout['order']['id'], ' ', $payout['order']['status'], "\n";
-
-// Optional: preview a PIX key owner before paying out.
-$info = $client->cashOut->dictCheck('maria@example.com', 'EMAIL');
-
-$balances = $client->balances->list();
+$clarian->ping();
+$balances = $clarian->balances->list();
 ```
 
-Auth headers (set automatically): `Authorization: Bearer <key>` and `X-Workspace-Id: <uuid>`.
+The key prefix picks the environment: `cl_test_sk_` calls `/v1/test`, `cl_live_sk_` calls `/v1/live`. Create keys in the dashboard under Negócios > API (needs 2FA). Give each key only the permissions it uses. Pass `baseUrl:` to point at another origin, `timeout:` (seconds) and `maxRetries:` to tune requests.
 
-## Environments
+Request bodies and replies are associative arrays shaped like the schemas in `openapi.json`.
 
-| Key prefix       | Base URL                                                    |
-|------------------|-------------------------------------------------------------|
-| `cl_test_sk_…`   | `https://api.clarian.finance/functions/v1/api-gateway/test` |
-| `cl_live_sk_…`   | `https://api.clarian.finance/functions/v1/api-gateway/live` |
-| any other prefix | **live** (same as `cl_live_sk_…`); not rejected             |
+## Amounts
 
-Only the `cl_test_sk_` prefix selects sandbox. Unknown prefixes default to live so a mis-typed key can hit production; pass `$baseUrl` when you need an explicit host.
-
-## Error handling
-
-Non-2xx responses throw `Clarian\ClarianException` with `status`, `code` (JSON `error` when present), `message` (detail / code / truncated body), and `meta`. The exception string (`getMessage()`) truncates the raw body to 500 characters.
+Every amount is an integer in minor units, sent and returned as a string. BRL has scale 2 (R$ 10,00 is `"1000"`), USDT and USDC scale 6 (1 USDT is `"1000000"`). Pass a `string`, `int`, `GMP` or integer `BcMath\Number`; a float in a `*_minor` field throws `InvalidArgumentException`. Balances carry their `scale`.
 
 ```php
-use Clarian\ClarianException;
+$brl = array_values(array_filter($balances, fn ($b) => $b['currency'] === 'BRL' && $b['kind'] === 'available'))[0];
+// $brl['balance_minor'] = "1250050", $brl['scale'] = 2 -> R$ 12.500,50
+```
+
+## Cash-in (receive PIX)
+
+```php
+$charge = $clarian->pix->payins->create(['amount_minor' => '25000', 'currency' => 'BRL'], 'order-981');
+$charge['pix_qr_code']; // copia-e-cola for the payer
+// later, or from the webhook:
+$paid = $clarian->pix->payins->retrieve($charge['id']);
+```
+
+The QR is valid for 30 minutes. The balance moves from `pending` to `available` when the PIX settles.
+
+## Cash-out (send PIX)
+
+```php
+$fee = $clarian->pix->payouts->fee(['amount_minor' => '10000']); // fee_minor, debit_minor
+$payout = $clarian->pix->payouts->create(
+    ['amount_minor' => '10000', 'currency' => 'BRL', 'pix_key' => 'settlement@yourcompany.com'],
+    'withdrawal-2026-10-10-001',
+);
+```
+
+Over the API, the money goes to your workspace's registered settlement key. Register it once in the dashboard; until then the call answers 403 `settlement_key_required`. Amount plus fee leave `available` at once and return if the PIX fails.
+
+## Quote and convert
+
+The direction is always `base_currency` -> `quote_currency`: you pay `base_amount_minor` of the base and receive the quote currency.
+
+```php
+// Buy USDT with R$ 500,00
+$quote = $clarian->conversions->quote(['base_currency' => 'BRL', 'quote_currency' => 'USDT', 'base_amount_minor' => '50000']);
+$quote['quote_amount_minor']; // USDT you receive (scale 6), after fees
+$quote['expires_at'];         // execute before this
+
+$result = $clarian->conversions->execute($quote['id']);
+$result['ledger']['to_minor'] ?? null; // settled amount; absent while $result['status'] === 'processing'
+```
+
+A quote converts once: a second execute is 409 `quote_not_open`, an expired one 410 `quote_expired`. To sell USDT for BRL, swap the currencies.
+
+## Wallets and crypto
+
+```php
+$wallets = $clarian->wallets->list();
+$clarian->wallets->balance($wallets[0]['id']);
+$clarian->crypto->networks();
+// API keys send only to wallets registered in the dashboard whitelist (403 destination_not_whitelisted).
+$clarian->crypto->send(['amount_minor' => '5000000', 'currency' => 'USDT', 'network' => 'polygon', 'to_address' => '0x...'], 'send-17');
+```
+
+## Customers, KYC and sub-accounts
+
+```php
+$customer = $clarian->customers->create(['kind' => 'person', 'display_name' => 'Maria Silva', 'document_type' => 'cpf', 'document_number' => '52998224725']);
+$clarian->kyc->create(['party_id' => $customer['id']]);
+
+$sub = $clarian->subaccounts->create(['display_name' => 'Store 12']);
+$store = $clarian->forSubaccount($sub['id']); // every call acts on that sub-account
+$store->pix->payins->create(['amount_minor' => '1000'], 'store12-order-1');
+```
+
+## Payment links
+
+```php
+$link = $clarian->paymentLinks->create(['amount_minor' => '4990', 'currency' => 'BRL', 'description' => 'Plano mensal']);
+$page = $clarian->paymentLinks->payments(['limit' => 50]); // ['items' => [...], 'next_cursor' => ...]
+```
+
+## Webhooks
+
+```php
+$hook = $clarian->webhooks->create(['url' => 'https://example.com/clarian', 'events' => ['payment.completed', 'payment.failed']]);
+$hook['secret']; // shown only here: store it
+$clarian->webhooks->test($hook['id']); // sandbox key: sends a signed test.ping
+```
+
+Verify every delivery on the raw body before trusting it:
+
+```php
+use Clarian\Webhook;
 
 try {
-    $client->cashOut->create(['amount' => 100.00], 'payout-inv-42');
-} catch (ClarianException $e) {
-    echo $e->status, ' ', $e->code, ' ', $e->message, "\n";
-    // $e->meta, $e->body (full untruncated body)
+    $event = Webhook::constructEvent(file_get_contents('php://input'), getallheaders(), getenv('CLARIAN_WEBHOOK_SECRET'));
+} catch (UnexpectedValueException $e) {
+    http_response_code(400);
+    exit;
+}
+// PSR-7: Webhook::constructEvent((string) $request->getBody(), $request->getHeaders(), $secret)
+
+if ($event['type'] === 'payment.completed') {
+    ['payment_id' => $paymentId, 'kind' => $kind, 'amount_minor' => $amount, 'currency' => $currency] = $event['data'];
 }
 ```
 
-## Verifying webhooks
+The signature is HMAC-SHA256 of `<x-clarian-timestamp>.<rawBody>`; deliveries older than 5 minutes, or with an unparseable timestamp, are refused. Dedupe on `$event['id']` and answer 2xx fast. Failed deliveries are listed in `webhooks->deliveries()`. `webhooks->test()` and `webhooks->resend($id)` work with a sandbox key only; in live, reconcile missed events with `transactions->list()`.
 
-Deliveries are signed with **HMAC-SHA256** (hex) over `` `{X-Clarian-Timestamp}.{rawBody}` `` using the full `whsec_…` secret (prefix included; do not strip it). Reject timestamps older than **5 minutes** (replay protection).
+## Sandbox
 
-Headers on each delivery:
-
-| Header                      | Purpose                        |
-|-----------------------------|--------------------------------|
-| `X-Clarian-Signature`       | HMAC-SHA256 hex digest         |
-| `X-Clarian-Timestamp`       | ISO 8601 / RFC3339             |
-| `X-Clarian-Event`           | Event type                     |
-| `X-Clarian-Delivery-Id`     | Unique delivery id             |
-| `X-Clarian-Idempotency-Key` | Dedupe key for the delivery    |
-| `X-Clarian-Attempt`         | Retry attempt number           |
+With a `cl_test_sk_` key nothing reaches a bank or chain. Settle or fail anything pending:
 
 ```php
-use Clarian\Webhooks;
+$clarian->pix->payins->simulate($charge['id']);                                  // completed
+$clarian->pix->payouts->simulate($payout['id'], ['status' => 'failed', 'reason' => 'test']);
+$clarian->crypto->simulate($send['id']);
+```
 
-$secret = getenv('CLARIAN_WEBHOOK_SECRET'); // whsec_...
-$rawBody = file_get_contents('php://input');
-$headers = Webhooks::extractHeaders(getallheaders() ?: $_SERVER);
+## Errors, retries and idempotency
 
-if (!Webhooks::verifySignature(
-    $rawBody,
-    $headers['timestamp'],
-    $headers['signature'],
-    $secret,
-)) {
-    http_response_code(401);
-    exit('invalid signature');
+Non-2xx replies throw `Clarian\ClarianError` with `status`, the API's stable `errorCode` and the remaining fields in `meta`:
+
+```php
+use Clarian\ClarianError;
+
+try {
+    $clarian->pix->payouts->create(['amount_minor' => '10000', 'pix_key' => 'x'], 'w-1');
+} catch (ClarianError $e) {
+    if ($e->errorCode === 'insufficient_balance') { /* ... */ }
 }
-
-// process json_decode($rawBody, true) ...
 ```
 
-For local handler tests, sign a payload the same way the server does:
+Money-moving creates (`pix->payins->create`, `pix->payouts->create`, `crypto->send`, `paymentLinks->charge`, `checkout->pay`) require an idempotency key; an empty one throws before any request. Retrying with the same key returns the same payment and never pays twice. The SDK retries 429/502/503/504 and network errors up to `maxRetries` (default 2), honoring `Retry-After`, but only reads, deletes and calls that carry an idempotency key. `conversions->execute` is never retried. The API allows 120 requests per minute per key.
 
-```php
-$sig = Webhooks::signPayload($secret, $timestamp, $rawBody);
-```
+## Not on the API
 
-Create a subscription (secret shown **once**):
+Actions that need a person's own second factor stay in the dashboard: inviting or changing team members, voting on approvals, creating or rotating API keys, saving payout accounts and whitelist entries, and changing workspace settings. Their read endpoints are in the SDK.
 
-```php
-$sub = $client->webhooks->create([
-    'url' => 'https://example.com/webhooks/clarian', // must be public https
-    'events' => ['pix_payin.completed', 'pix_payout.completed'],
-]);
-// store $sub['secret'] immediately; it is never returned again
-echo $sub['id'], ' ', $sub['secret'], "\n";
-```
+## Reference
 
-## Sandbox testing
+| Area | Methods |
+|---|---|
+| `balances` | `list` |
+| `pix->payins` | `create`, `retrieve`, `simulate` |
+| `pix->payouts` | `create`, `retrieve`, `fee`, `lookup`, `simulate`, `listAccounts` |
+| `conversions` | `quote`, `execute`, `prices` |
+| `wallets` | `list`, `create`, `retrieve`, `balance`, `transactions` |
+| `crypto` | `send`, `simulate`, `networks` |
+| `transactions` | `list`, `retrieve`, `statement` |
+| `customers` | `list`, `create`, `retrieve`, `update` |
+| `kyc` | `list`, `create`, `retrieve`, `listRfi`, `answerRfi` |
+| `webhooks` | `list`, `create`, `retrieve`, `update`, `delete`, `test`, `deliveries`, `resend` |
+| `paymentLinks` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replaceSplits`, `charge` |
+| `checkout` | `retrieve`, `pay` |
+| `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions` |
+| `whitelist`, `bankAccounts`, `apiKeys`, `settings`, `notifications`, `team`, `approvals` | read |
+| `workflows`, `treasury` | `list`, `create` (+ `workflows->runs`) |
 
-Sandbox helpers live on `$client->sandbox`. They require a `cl_test_sk_…` key and throw `\LogicException` for live keys **before** any HTTP call. Outside the test environment the gateway returns `404 {error:"sandbox_only"}`.
-
-```php
-use Clarian\Sandbox;
-
-// Advance a pending cash-in (empty/null status -> completed).
-$order = $client->sandbox->simulateCashIn($charge['order']['id'], 'completed');
-// status: "completed" | "expired" | "failed"
-
-// Advance a cash-out: "completed" | "failed"
-$client->sandbox->simulateCashOut($payout['order']['id'], 'failed');
-
-// Enqueue a sample webhook for a subscription.
-$result = $client->sandbox->sendWebhookEvent(
-    $sub['id'],
-    Sandbox::EVENT_PIX_PAYIN_COMPLETED,
-);
-$newId = $client->sandbox->resendWebhookDelivery($result['delivery_id']);
-```
-
-### Magic PIX keys
-
-| Constant / key                      | Sandbox payout behavior                                  |
-|-------------------------------------|----------------------------------------------------------|
-| `Sandbox::SANDBOX_FAIL_PIX_KEY`     | `fail@sandbox.clarian` (fails + refund)                  |
-| `Sandbox::SANDBOX_PENDING_PIX_KEY`  | `pending@sandbox.clarian` (stays pending until simulated)|
-
-```php
-$client->cashOut->create([
-    'amount' => 10.00,
-    'pix_key' => Sandbox::SANDBOX_FAIL_PIX_KEY,
-], 'payout-fail-1');
-```
-
-Sample event type constants: `EVENT_PIX_PAYIN_CREATED`, `EVENT_PIX_PAYIN_COMPLETED`, `EVENT_PIX_PAYIN_EXPIRED`, `EVENT_PIX_PAYOUT_CREATED`, `EVENT_PIX_PAYOUT_COMPLETED`, `EVENT_PIX_PAYOUT_FAILED`, `EVENT_CHECKOUT_PAID`.
-
-## API surface
-
-| Method | Path | Client |
-|--------|------|--------|
-| `GET` | `/ping` | `$client->ping()` |
-| `POST` | `/cash-in/pix` | `$client->cashIn->create($params, $idempotencyKey)` |
-| `GET` | `/cash-in/{id}` | `$client->cashIn->retrieve($id)` |
-| `POST` | `/pix/payouts/dict` | `$client->cashOut->dictCheck($pixKey, $keyType)` |
-| `POST` | `/cash-out/pix` | `$client->cashOut->create($params, $idempotencyKey)` |
-| `GET` | `/cash-out/{id}` | `$client->cashOut->retrieve($id)` |
-| `GET` | `/account/balances` | `$client->balances->list()` |
-| `GET` | `/transactions` | `$client->transactions->list(...)` |
-| `GET` | `/transactions/{id}` | `$client->transactions->retrieve($id)` |
-| `GET` | `/wallets` | `$client->wallets->list($network)` |
-| `GET` | `/wallets/{id}/balance` | `$client->wallets->retrieveBalance($id)` |
-| | webhooks CRUD | `$client->webhooks->create/list/update/delete` |
-| | verify delivery | `Webhooks::verifySignature` / `extractHeaders` / `signPayload` |
-| `POST` | `/pix/payins/{id}/simulate` | `$client->sandbox->simulateCashIn($id, $status)` |
-| `POST` | `/pix/payouts/{id}/simulate` | `$client->sandbox->simulateCashOut($id, $status)` |
-| `POST` | `/webhooks/{id}/test` | `$client->sandbox->sendWebhookEvent($id, $eventType)` |
-| `POST` | `/webhooks/deliveries/{id}/resend` | `$client->sandbox->resendWebhookDelivery($id)` |
+Field names follow the OpenAPI reference (`../openapi.json`, also at `https://app.clarian.finance/openapi.json`).
 
 ## Development
 
 ```bash
-cd php
 composer install
-vendor/bin/phpunit tests
+vendor/bin/phpunit
+CLARIAN_API_KEY=cl_test_sk_... CLARIAN_WORKSPACE_ID=... CLARIAN_BASE_URL=http://localhost:3000 php e2e/sandbox.php
 ```

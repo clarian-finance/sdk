@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "finance.clarian"
-version = "0.4.1"
+version = "1.0.0"
 
 java {
     toolchain {
@@ -36,4 +36,11 @@ publishing {
             version = project.version.toString()
         }
     }
+}
+
+// CLARIAN_API_KEY=cl_test_sk_... CLARIAN_WORKSPACE_ID=... CLARIAN_BASE_URL=http://localhost:3000 gradle e2e
+tasks.register<JavaExec>("e2e") {
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("finance.clarian.sdk.SandboxE2E")
+    args(rootProject.file("../openapi.json").absolutePath)
 }

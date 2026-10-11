@@ -1,412 +1,183 @@
 # frozen_string_literal: true
 
-require "json"
 require "minitest/autorun"
+require "json"
 require "clarian"
-require_relative "fake_transport"
 
-class TestEnvDetection < Minitest::Test
-  def test_test_prefix
-    c = Clarian::Client.new(api_key: "cl_test_sk_abc", workspace_id: "ws")
-    assert_equal Clarian::BASE_URL_TEST, c.base_url
+class FakeTransport
+  attr_reader :calls
+
+  # replies: list of [status, body(Hash/String), headers] or an Exception to raise; the last one repeats.
+  def initialize(*replies)
+    @replies = replies
+    @calls = []
   end
 
-  def test_live_prefix
-    c = Clarian::Client.new(api_key: "cl_live_sk_abc", workspace_id: "ws")
-    assert_equal Clarian::BASE_URL_LIVE, c.base_url
-  end
+  def call(method, url, headers, body, _timeout)
+    @calls << { method: method, url: url, headers: headers, body: body && JSON.parse(body) }
+    r = @replies.length > 1 ? @replies.shift : @replies.first
+    raise r if r.is_a?(Exception)
 
-  def test_unknown_defaults_live
-    c = Clarian::Client.new(api_key: "other_key", workspace_id: "ws")
-    assert_equal Clarian::BASE_URL_LIVE, c.base_url
-  end
-
-  def test_base_url_override_strips_trailing_slash
-    c = Clarian::Client.new(
-      api_key: "cl_test_sk_x",
-      workspace_id: "ws",
-      base_url: "http://localhost:9999/v1/"
-    )
-    assert_equal "http://localhost:9999/v1", c.base_url
+    status, payload, headers = r
+    [status, payload.is_a?(String) ? payload : JSON.generate(payload), headers || {}]
   end
 end
 
-class TestAuthHeaders < Minitest::Test
-  def test_workspace_and_auth_on_every_request
-    mt = ClarianTest::FakeTransport.new do |_req|
-      [200, { "ok" => true, "environment" => "sandbox", "master_account_id" => "m1" }]
+class TestClient < Minitest::Test
+  KEY = "cl_test_sk_abc"
+  WS = "ws_1"
+
+  def client(*replies, **opts)
+    @t = FakeTransport.new(*replies)
+    @slept = []
+    Clarian::Client.new(api_key: KEY, workspace_id: WS, transport: @t, sleeper: ->(s) { @slept << s }, **opts)
+  end
+
+  def test_env_from_key_prefix
+    assert_equal "sandbox", client([200, {}]).environment
+    c = Clarian::Client.new(api_key: "cl_live_sk_x", workspace_id: WS, transport: FakeTransport.new([200, {}]))
+    assert_equal "live", c.environment
+    assert_raises(ArgumentError) { Clarian::Client.new(api_key: "bad", workspace_id: WS) }
+    assert_raises(ArgumentError) { Clarian::Client.new(api_key: KEY, workspace_id: "") }
+  end
+
+  def test_request_building_and_unwrap
+    c = client([200, { "data" => [{ "id" => "p1" }] }], base_url: "http://x/")
+    assert_equal [{ "id" => "p1" }], c.transactions.list(limit: 5, before: "a b")
+    call = @t.calls.last
+    assert_equal "GET", call[:method]
+    assert_equal "http://x/v1/test/transactions?limit=5&before=a+b", call[:url]
+    assert_equal "Bearer #{KEY}", call[:headers]["Authorization"]
+    assert_equal WS, call[:headers]["X-Workspace-Id"]
+    refute call[:headers].key?("Idempotency-Key")
+    refute call[:headers].key?("Content-Type")
+  end
+
+  def test_live_default_base_url
+    t = FakeTransport.new([200, { "data" => {} }])
+    Clarian::Client.new(api_key: "cl_live_sk_x", workspace_id: WS, transport: t).ping
+    assert_equal "https://api.clarian.finance/v1/live/ping", t.calls.last[:url]
+  end
+
+  def test_idempotent_create_headers_and_body
+    c = client([200, { "data" => { "id" => "p" } }])
+    c.pix.payins.create({ amount_minor: 10**30, currency: "BRL" }, "k-1")
+    call = @t.calls.last
+    assert_equal "POST", call[:method]
+    assert call[:url].end_with?("/v1/test/pix/payins")
+    assert_equal "k-1", call[:headers]["Idempotency-Key"]
+    assert_equal "application/json", call[:headers]["Content-Type"]
+    assert_equal 10**30, call[:body]["amount_minor"]
+  end
+
+  def test_subaccount_header_and_path_escape
+    c = client([200, { "data" => {} }]).for_subaccount("sub_9")
+    c.wallets.retrieve("a/b")
+    assert_equal "sub_9", @t.calls.last[:headers]["X-Subaccount-Id"]
+    assert @t.calls.last[:url].end_with?("/wallets/a%2Fb")
+  end
+
+  def test_floats_rejected
+    c = client([200, {}])
+    assert_raises(ArgumentError) { c.pix.payouts.fee({ amount_minor: 10.5 }) }
+    assert_empty @t.calls
+  end
+
+  def test_idempotency_key_required
+    c = client([200, {}])
+    [-> { c.pix.payins.create({}, "") }, -> { c.pix.payouts.create({}, nil) }, -> { c.crypto.send({}, "") },
+     -> { c.payment_links.charge("l", {}, "") }, -> { c.checkout.pay("s", {}, "") }].each do |f|
+      assert_raises(ArgumentError, &f)
     end
-    c = Clarian::Client.new(
-      api_key: "cl_test_sk_key",
-      workspace_id: "ws-uuid",
-      base_url: "https://mock",
-      transport: mt
-    )
-    res = c.ping
-    assert_equal true, res["ok"]
-    assert_equal "GET", mt.last.method
-    assert_equal "/ping", mt.last.path
-    assert_equal "Bearer cl_test_sk_key", mt.last.headers["Authorization"]
-    assert_equal "ws-uuid", mt.last.headers["X-Workspace-Id"]
+    assert_empty @t.calls
+  end
+
+  def test_error_mapping
+    c = client([402, { "error" => "insufficient_balance", "message" => "no money", "need" => "5" }])
+    e = assert_raises(Clarian::ClarianError) { c.balances.list }
+    assert_equal 402, e.status
+    assert_equal "insufficient_balance", e.code
+    assert_equal "no money", e.message
+    assert_equal({ "need" => "5" }, e.meta)
+    e = assert_raises(Clarian::ClarianError) { client([500, "oops"]).balances.list }
+    assert_equal "invalid_json_response", e.code
+  end
+
+  def test_get_retried_honoring_retry_after
+    c = client([503, {}, { "Retry-After" => "2" }], [429, {}], [200, { "data" => [] }])
+    assert_equal [], c.balances.list
+    assert_equal 3, @t.calls.size
+    assert_equal 2.0, @slept.first
+  end
+
+  def test_retries_capped_at_max
+    c = client([503, { "error" => "down" }], max_retries: 2)
+    assert_raises(Clarian::ClarianError) { c.balances.list }
+    assert_equal 3, @t.calls.size
+  end
+
+  def test_network_error_retried_for_get
+    c = client(Errno::ECONNRESET.new, [200, { "data" => [] }])
+    assert_equal [], c.balances.list
+    assert_equal 2, @t.calls.size
+  end
+
+  def test_post_without_key_not_retried
+    c = client([503, { "error" => "down" }])
+    assert_raises(Clarian::ClarianError) { c.customers.create({ kind: "person" }) }
+    assert_equal 1, @t.calls.size
+  end
+
+  def test_execute_not_retried
+    c = client([503, { "error" => "down" }])
+    assert_raises(Clarian::ClarianError) { c.conversions.execute("q1") }
+    assert_equal 1, @t.calls.size
+    refute @t.calls.last[:headers].key?("Idempotency-Key")
+    assert_equal({ "quote_id" => "q1" }, @t.calls.last[:body])
+  end
+
+  def test_post_with_key_retried
+    c = client([502, {}], [200, { "data" => { "id" => "p" } }])
+    assert_equal({ "id" => "p" }, c.pix.payouts.create({ amount_minor: "1000" }, "k"))
+    assert_equal 2, @t.calls.size
   end
 end
 
-class TestIdempotencyHeader < Minitest::Test
-  def test_cash_in_create_sends_idempotency_key
-    mt = ClarianTest::FakeTransport.new do |_req|
-      [
-        201,
-        {
-          "ok" => true,
-          "environment" => "sandbox",
-          "order" => {
-            "id" => "ord_1",
-            "status" => "pending",
-            "amount" => 19.50,
-            "currency" => "BRL",
-            "pix" => { "copy_paste" => "brcode" }
-          }
-        }
-      ]
-    end
-    c = Clarian::Client.new(
-      api_key: "cl_test_sk_x",
-      workspace_id: "ws-uuid",
-      base_url: "https://mock",
-      transport: mt
-    )
-    res = c.cash_in.create(
-      {
-        "amount" => 19.50,
-        "payer" => { "name" => "Ana", "document_number" => "52998224725" }
-      },
-      idempotency_key: "pay-ext-1"
-    )
-    assert_equal "ord_1", res["order"]["id"]
-    assert_equal "POST", mt.last.method
-    assert_equal "/cash-in/pix", mt.last.path
-    assert_equal "pay-ext-1", mt.last.headers["Idempotency-Key"]
-    assert_equal "ws-uuid", mt.last.headers["X-Workspace-Id"]
-    body = JSON.parse(mt.last.body)
-    assert_equal 19.50, body["amount"]
-    assert_equal "Ana", body["payer"]["name"]
+class TestWebhook < Minitest::Test
+  SECRET = "whsec_test"
+  BODY = '{"id":"evt_1","type":"payment.completed","created_at":"2026-10-11T00:00:00Z","data":{"payment_id":"p1"}}'
+
+  def headers(ts, sig = Clarian::Webhook.sign_payload(BODY, ts, SECRET))
+    { "X-Clarian-Signature" => sig, "x-clarian-timestamp" => ts, "x-clarian-event" => "payment.completed" }
   end
 
-  def test_cash_out_create_sends_idempotency_key
-    mt = ClarianTest::FakeTransport.new do |_req|
-      [201, { "ok" => true, "order" => { "id" => "out_9", "status" => "processing" } }]
-    end
-    c = Clarian::Client.new(
-      api_key: "cl_test_sk_x",
-      workspace_id: "ws",
-      base_url: "https://mock",
-      transport: mt
-    )
-    c.cash_out.create(
-      { "amount" => 10.00, "pix_key" => "abc", "pix_key_type" => "EVP" },
-      idempotency_key: "repasse-1"
-    )
-    assert_equal "repasse-1", mt.last.headers["Idempotency-Key"]
-    assert_equal "/cash-out/pix", mt.last.path
+  def test_valid
+    ev = Clarian::Webhook.construct_event(BODY, headers(Time.now.utc.iso8601), SECRET)
+    assert_equal "evt_1", ev["id"]
+    assert_equal "p1", ev["data"]["payment_id"]
   end
 
-  def test_get_does_not_send_idempotency_key
-    mt = ClarianTest::FakeTransport.new do |_req|
-      [200, { "ok" => true, "order" => { "id" => "x", "status" => "pending" } }]
-    end
-    c = Clarian::Client.new(
-      api_key: "cl_test_sk_x",
-      workspace_id: "ws",
-      base_url: "https://mock",
-      transport: mt
-    )
-    c.cash_in.retrieve("x")
-    refute mt.last.headers.key?("Idempotency-Key")
-  end
-end
-
-class TestResourceHappyPaths < Minitest::Test
-  def test_cash_in_retrieve
-    mt = ClarianTest::FakeTransport.new do |_req|
-      [200, { "ok" => true, "order" => { "id" => "ord_paid", "status" => "completed" } }]
-    end
-    c = Clarian::Client.new(
-      api_key: "cl_live_sk_x",
-      workspace_id: "ws",
-      base_url: "https://mock",
-      transport: mt
-    )
-    res = c.cash_in.retrieve("ord_paid")
-    assert_equal "completed", res["order"]["status"]
-    assert_equal "/cash-in/ord_paid", mt.last.path
+  def test_rack_env_headers
+    ts = Time.now.utc.iso8601
+    env = { "HTTP_X_CLARIAN_SIGNATURE" => Clarian::Webhook.sign_payload(BODY, ts, SECRET), "HTTP_X_CLARIAN_TIMESTAMP" => ts }
+    assert_equal "evt_1", Clarian::Webhook.construct_event(BODY, env, SECRET)["id"]
   end
 
-  def test_cash_out_retrieve
-    mt = ClarianTest::FakeTransport.new do |_req|
-      [200, { "ok" => true, "order" => { "id" => "out_1", "status" => "completed" } }]
-    end
-    c = Clarian::Client.new(
-      api_key: "cl_test_sk_x",
-      workspace_id: "ws",
-      base_url: "https://mock",
-      transport: mt
-    )
-    res = c.cash_out.retrieve("out_1")
-    assert_equal "out_1", res["order"]["id"]
-    assert_equal "/cash-out/out_1", mt.last.path
+  def test_bad_signature
+    ts = Time.now.utc.iso8601
+    assert_raises(ArgumentError) { Clarian::Webhook.construct_event(BODY, headers(ts, "0" * 64), SECRET) }
+    refute Clarian::Webhook.verify_signature(BODY, Clarian::Webhook.sign_payload(BODY, ts, SECRET), ts, "other")
+    refute Clarian::Webhook.verify_signature("#{BODY} ", Clarian::Webhook.sign_payload(BODY, ts, SECRET), ts, SECRET)
   end
 
-  def test_cash_out_dict_check
-    mt = ClarianTest::FakeTransport.new do |_req|
-      [200, { "ok" => true, "dict" => { "name" => "Maria", "keyType" => "EMAIL" } }]
-    end
-    c = Clarian::Client.new(
-      api_key: "cl_test_sk_x",
-      workspace_id: "ws",
-      base_url: "https://mock",
-      transport: mt
-    )
-    res = c.cash_out.dict_check("maria@example.com", key_type: "EMAIL")
-    assert_equal "Maria", res["dict"]["name"]
-    assert_equal "POST", mt.last.method
-    assert_equal "/pix/payouts/dict", mt.last.path
-    body = JSON.parse(mt.last.body)
-    assert_equal "maria@example.com", body["pix_key"]
-    assert_equal "EMAIL", body["key_type"]
+  def test_stale
+    ts = (Time.now - 301).utc.iso8601
+    assert_raises(ArgumentError) { Clarian::Webhook.construct_event(BODY, headers(ts), SECRET) }
   end
 
-  def test_balances_list
-    mt = ClarianTest::FakeTransport.new do |_req|
-      [
-        200,
-        {
-          "ok" => true,
-          "balances" => [
-            { "currency" => "BRL", "available" => 100.50, "pending" => 0, "locked" => 0 }
-          ]
-        }
-      ]
+  def test_unparseable_timestamp
+    %w[not-a-date 1728600000].push("").each do |ts|
+      refute Clarian::Webhook.verify_signature(BODY, Clarian::Webhook.sign_payload(BODY, ts, SECRET), ts, SECRET)
     end
-    c = Clarian::Client.new(
-      api_key: "cl_test_sk_x",
-      workspace_id: "ws",
-      base_url: "https://mock",
-      transport: mt
-    )
-    bals = c.balances.list
-    assert_equal 1, bals.length
-    assert_equal "BRL", bals[0]["currency"]
-    assert_equal "/account/balances", mt.last.path
-  end
-
-  def test_transactions_list_and_retrieve
-    mt = ClarianTest::FakeTransport.new do |req|
-      if req.path.start_with?("/transactions?") || req.path == "/transactions"
-        assert_includes req.path, "type=pix_in"
-        assert_includes req.path, "limit=20"
-        [
-          200,
-          {
-            "transactions" => [
-              {
-                "id" => "tx1",
-                "type" => "pix_in",
-                "status" => "completed",
-                "amount" => 10,
-                "fee" => 0,
-                "currency" => "BRL"
-              }
-            ]
-          }
-        ]
-      elsif req.path == "/transactions/tx-99"
-        [
-          200,
-          {
-            "transaction" => {
-              "id" => "tx-99",
-              "type" => "pix_in",
-              "status" => "completed",
-              "amount" => 10,
-              "fee" => 0.1,
-              "currency" => "BRL"
-            }
-          }
-        ]
-      else
-        flunk "unexpected path #{req.path}"
-      end
-    end
-    c = Clarian::Client.new(
-      api_key: "cl_test_sk_x",
-      workspace_id: "ws",
-      base_url: "https://mock",
-      transport: mt
-    )
-    lst = c.transactions.list(type: "pix_in", limit: 20)
-    assert_equal "tx1", lst[0]["id"]
-    tx = c.transactions.retrieve("tx-99")
-    assert_equal "tx-99", tx["id"]
-  end
-
-  def test_wallets_list_and_balance
-    mt = ClarianTest::FakeTransport.new do |req|
-      if req.path == "/wallets" || req.path.start_with?("/wallets?")
-        [
-          200,
-          {
-            "ok" => true,
-            "wallets" => [
-              { "id" => "w1", "network" => "polygon", "address" => "0xabc" }
-            ]
-          }
-        ]
-      elsif req.path == "/wallets/w1/balance"
-        [
-          200,
-          {
-            "wallet_id" => "w1",
-            "network" => "polygon",
-            "address" => "0xabc",
-            "balances" => [{ "currency" => "USDT", "amount" => "1.5" }]
-          }
-        ]
-      else
-        flunk "unexpected path #{req.path}"
-      end
-    end
-    c = Clarian::Client.new(
-      api_key: "cl_test_sk_x",
-      workspace_id: "ws",
-      base_url: "https://mock",
-      transport: mt
-    )
-    wallets = c.wallets.list
-    assert_equal "w1", wallets[0]["id"]
-    bal = c.wallets.retrieve_balance("w1")
-    assert_equal "w1", bal["wallet_id"]
-    assert_equal "USDT", bal["balances"][0]["currency"]
-  end
-
-  def test_webhooks_crud
-    mt = ClarianTest::FakeTransport.new do |req|
-      if req.method == "POST" && req.path == "/webhooks"
-        [
-          201,
-          {
-            "ok" => true,
-            "subscription" => {
-              "id" => "wh1",
-              "url" => "https://ex.com",
-              "events" => ["pix_payin.completed"],
-              "is_active" => true
-            },
-            "secret" => "whsec_abc"
-          }
-        ]
-      elsif req.method == "GET" && req.path == "/webhooks"
-        [
-          200,
-          {
-            "subscriptions" => [
-              {
-                "id" => "wh1",
-                "url" => "https://ex.com",
-                "events" => ["pix_payin.completed"],
-                "is_active" => true
-              }
-            ]
-          }
-        ]
-      elsif req.method == "PATCH" && req.path == "/webhooks/wh1"
-        [
-          200,
-          {
-            "subscription" => {
-              "id" => "wh1",
-              "url" => "https://ex.com/v2",
-              "events" => ["pix_payin.completed"],
-              "is_active" => false
-            }
-          }
-        ]
-      elsif req.method == "DELETE" && req.path == "/webhooks/wh1"
-        [200, { "ok" => true }]
-      else
-        flunk "unexpected #{req.method} #{req.path}"
-      end
-    end
-    c = Clarian::Client.new(
-      api_key: "cl_test_sk_x",
-      workspace_id: "ws",
-      base_url: "https://mock",
-      transport: mt
-    )
-    created = c.webhooks.create(
-      { "url" => "https://ex.com", "events" => ["pix_payin.completed"] }
-    )
-    assert_equal "whsec_abc", created["secret"]
-    assert_equal "wh1", created["id"]
-    subs = c.webhooks.list
-    assert_equal 1, subs.length
-    upd = c.webhooks.update(
-      "wh1",
-      {
-        "url" => "https://ex.com/v2",
-        "events" => ["pix_payin.completed"],
-        "is_active" => false
-      }
-    )
-    assert_equal false, upd["is_active"]
-    c.webhooks.delete("wh1")
-    assert_equal "DELETE", mt.calls.last.method
-  end
-end
-
-class TestClarianError < Minitest::Test
-  def test_json_code_and_meta
-    mt = ClarianTest::FakeTransport.new do |_req|
-      [
-        402,
-        {
-          "error" => "insufficient_balance",
-          "detail" => "saldo insuficiente",
-          "available" => 10,
-          "requested" => 100
-        }
-      ]
-    end
-    c = Clarian::Client.new(
-      api_key: "cl_test_sk_x",
-      workspace_id: "ws",
-      base_url: "https://mock",
-      transport: mt
-    )
-    err = assert_raises(Clarian::Error) do
-      c.cash_out.create({ "amount" => 100 }, idempotency_key: "idem")
-    end
-    assert_equal 402, err.status
-    assert_equal "insufficient_balance", err.code
-    assert_equal "saldo insuficiente", err.message
-    assert_equal 10, err.meta["available"]
-    assert_includes err.to_s, "insufficient_balance"
-  end
-
-  def test_body_truncation_in_message
-    long_body = "x" * 600
-    mt = ClarianTest::FakeTransport.new { |_req| [429, long_body] }
-    c = Clarian::Client.new(
-      api_key: "cl_test_sk_x",
-      workspace_id: "ws",
-      base_url: "https://mock",
-      transport: mt
-    )
-    err = assert_raises(Clarian::Error) { c.ping }
-    assert_equal 429, err.status
-    assert_equal "", err.code
-    assert_equal 500, err.message.length
-    assert_operator err.to_s.length, :<=, 500 + "HTTP 429: ".length
-    refute_includes err.to_s, "x" * 600
-    assert_equal long_body, err.body
   end
 end

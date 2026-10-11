@@ -105,28 +105,15 @@ final class Json {
     }
 
     private static void writeNumber(StringBuilder sb, Number n) {
-        if (n instanceof Double d) {
-            if (d.isNaN() || d.isInfinite()) {
-                throw new IllegalArgumentException("cannot encode NaN/Infinity");
-            }
-            long asLong = d.longValue();
-            if (asLong == d) {
-                sb.append(asLong);
-                return;
-            }
-            sb.append(d);
-            return;
+        // Request bodies carry integer minor units only; a float would silently lose cents.
+        if (n instanceof Double || n instanceof Float) {
+            throw new IllegalArgumentException("floats are not allowed: send amounts as integer minor units");
         }
-        if (n instanceof Float f) {
-            if (f.isNaN() || f.isInfinite()) {
-                throw new IllegalArgumentException("cannot encode NaN/Infinity");
-            }
-            long asLong = f.longValue();
-            if (asLong == f) {
-                sb.append(asLong);
-                return;
-            }
-            sb.append(f);
+        if (n instanceof java.math.BigDecimal) {
+            throw new IllegalArgumentException("cannot encode BigDecimal: amounts are integer minor units");
+        }
+        if (n instanceof java.math.BigInteger) {
+            writeString(sb, n.toString()); // like the TS SDK's bigint: a string on the wire
             return;
         }
         sb.append(n.toString());
@@ -351,7 +338,7 @@ final class Json {
             try {
                 return Long.valueOf(raw);
             } catch (NumberFormatException e) {
-                return Double.valueOf(raw);
+                return new java.math.BigInteger(raw);
             }
         }
     }

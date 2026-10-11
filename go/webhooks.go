@@ -1,88 +1,58 @@
 package clarian
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
 	"time"
 )
 
-// Webhook replay window (matches server dispatch).
-const webhookTolerance = 5 * time.Minute
+// DefaultWebhookTolerance is the maximum age of a delivery.
+const DefaultWebhookTolerance = 5 * time.Minute
 
-// Header names on every Clarian webhook delivery.
-const (
-	HeaderSignature      = "X-Clarian-Signature"
-	HeaderTimestamp      = "X-Clarian-Timestamp"
-	HeaderEvent          = "X-Clarian-Event"
-	HeaderDeliveryID     = "X-Clarian-Delivery-Id"
-	HeaderIdempotencyKey = "X-Clarian-Idempotency-Key"
-	HeaderAttempt        = "X-Clarian-Attempt"
-)
+// ErrInvalidWebhook is returned when the signature or timestamp is bad.
+var ErrInvalidWebhook = errors.New("invalid webhook signature or timestamp outside tolerance")
 
-// SignPayload returns the hex HMAC-SHA256 of timestamp+"."+payload using secret.
-// Use with VerifyWebhook in local handler tests (inverse of the verify step).
-func SignPayload(secret, timestamp string, payload []byte) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte(timestamp + "." + string(payload)))
-	return hex.EncodeToString(mac.Sum(nil))
+// WebhookEvent is the body of a delivery. Data is a Row with payment_id, kind, status, amount_minor, currency, ...
+type WebhookEvent struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	CreatedAt string `json:"created_at"`
+	Data      Row    `json:"data"`
 }
 
-// VerifyWebhook checks HMAC-SHA256 signature and timestamp freshness, then
-// parses the envelope. Signature = hex(HMAC-SHA256(secret, timestamp+"."+rawBody))
-// where secret is the full whsec_… string (prefix included). Fail-closed on
-// missing secret, signature, or timestamp.
-func VerifyWebhook(payload []byte, headers http.Header, secret string) (*Event, error) {
-	sig := headers.Get(HeaderSignature)
-	tsRaw := headers.Get(HeaderTimestamp)
-	if secret == "" || sig == "" || tsRaw == "" {
-		return nil, fmt.Errorf("clarian: missing webhook signature, timestamp, or secret")
-	}
+// SignWebhookPayload signs "<timestamp>.<body>" exactly as Clarian does. For tests of your own handler.
+func SignWebhookPayload(body []byte, timestamp, secret string) string {
+	m := hmac.New(sha256.New, []byte(secret))
+	m.Write([]byte(timestamp + "."))
+	m.Write(body)
+	return hex.EncodeToString(m.Sum(nil))
+}
 
-	ts, err := time.Parse(time.RFC3339Nano, tsRaw)
+// VerifyWebhookSignature checks the HMAC and the timestamp age. An unparseable timestamp fails closed.
+func VerifyWebhookSignature(body []byte, signature, timestamp, secret string, tolerance time.Duration) bool {
+	sentAt, err := time.Parse(time.RFC3339Nano, timestamp)
 	if err != nil {
-		return nil, fmt.Errorf("clarian: invalid webhook timestamp: %w", err)
+		return false
 	}
-	diff := time.Since(ts)
-	if diff < 0 {
-		diff = -diff
+	if age := time.Since(sentAt); age > tolerance || age < -tolerance {
+		return false
 	}
-	if diff > webhookTolerance {
-		return nil, fmt.Errorf("clarian: webhook timestamp outside tolerance")
-	}
+	return hmac.Equal([]byte(SignWebhookPayload(body, timestamp, secret)), []byte(signature))
+}
 
-	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte(tsRaw + "." + string(payload)))
-	expected := hex.EncodeToString(mac.Sum(nil))
-	if !hmac.Equal([]byte(expected), []byte(sig)) {
-		return nil, fmt.Errorf("clarian: invalid webhook signature")
+// ConstructWebhookEvent verifies a delivery and returns its parsed body. rawBody must be the exact
+// bytes received. Dedupe on event.ID: a delivery can arrive more than once.
+func ConstructWebhookEvent(rawBody []byte, h http.Header, secret string) (*WebhookEvent, error) {
+	if !VerifyWebhookSignature(rawBody, h.Get("X-Clarian-Signature"), h.Get("X-Clarian-Timestamp"), secret, DefaultWebhookTolerance) {
+		return nil, ErrInvalidWebhook
 	}
-
-	var envelope struct {
-		ID          string          `json:"id"`
-		Type        string          `json:"type"`
-		CreatedAt   string          `json:"created_at"`
-		Environment string          `json:"environment"`
-		Data        json.RawMessage `json:"data"`
+	var ev WebhookEvent
+	if err := decode(bytes.TrimSpace(rawBody), &ev); err != nil {
+		return nil, err
 	}
-	if err := json.Unmarshal(payload, &envelope); err != nil {
-		return nil, fmt.Errorf("clarian: decode webhook: %w", err)
-	}
-
-	evt := &Event{
-		ID:          envelope.ID,
-		Type:        envelope.Type,
-		CreatedAt:   envelope.CreatedAt,
-		Environment: envelope.Environment,
-		RawData:     envelope.Data,
-	}
-	if len(envelope.Data) > 0 {
-		if err := json.Unmarshal(envelope.Data, &evt.Data); err != nil {
-			return nil, fmt.Errorf("clarian: decode webhook data: %w", err)
-		}
-	}
-	return evt, nil
+	return &ev, nil
 }
