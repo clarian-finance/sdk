@@ -31,7 +31,8 @@ def verify_webhook_signature(
     # An unparseable or naive timestamp fails closed.
     if sent_at is None or abs(time.time() - sent_at) > tolerance:
         return False
-    return hmac.compare_digest(sign_webhook_payload(body, timestamp, secret), signature or "")
+    expected = sign_webhook_payload(body, timestamp, secret).encode()
+    return hmac.compare_digest(expected, (signature or "").encode("utf-8", "replace"))
 
 
 def extract_webhook_headers(headers: Mapping[str, Any]) -> dict[str, str]:

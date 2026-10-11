@@ -91,17 +91,22 @@ module Clarian
       { "error" => "invalid_json_response", "message" => text[0, 500] }
     end
 
-    def send_with_retries(method, url, headers, raw, retries_left, attempt = 0)
-      status, text, resp_headers = @transport.call(method, url, headers, raw, @timeout)
-      return [status, text] if !RETRY_STATUS.include?(status) || retries_left <= 0
+    def send_with_retries(method, url, headers, raw, retries_left)
+      attempt = 0
+      loop do
+        begin
+          status, text, resp_headers = @transport.call(method, url, headers, raw, @timeout)
+          return [status, text] if !RETRY_STATUS.include?(status) || attempt >= retries_left
 
-      @sleeper.call(backoff(attempt, header(resp_headers, "retry-after")))
-      send_with_retries(method, url, headers, raw, retries_left - 1, attempt + 1)
-    rescue SystemCallError, IOError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError
-      raise if retries_left <= 0
+          wait = backoff(attempt, header(resp_headers, "retry-after"))
+        rescue SystemCallError, IOError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError
+          raise if attempt >= retries_left
 
-      @sleeper.call(backoff(attempt, nil))
-      send_with_retries(method, url, headers, raw, retries_left - 1, attempt + 1)
+          wait = backoff(attempt, nil)
+        end
+        @sleeper.call(wait)
+        attempt += 1
+      end
     end
 
     def header(h, name)
