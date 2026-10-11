@@ -116,7 +116,7 @@ export async function request<T>(
   };
   const init = { method, headers, body: opts.body !== undefined ? toJson(opts.body) : undefined };
   // Only a request that cannot double-apply is retried: reads, deletes, or a create with an idempotency key.
-  const retryable = method === "GET" || method === "DELETE" || opts.idempotencyKey !== undefined;
+  const retryable = method === "GET" || method === "DELETE" || Boolean(opts.idempotencyKey);
   const resp = await send(config, url, init, retryable ? config.maxRetries : 0);
   const json = await parseBody(resp);
   const obj = typeof json === "object" && json !== null ? (json as Record<string, unknown>) : {};

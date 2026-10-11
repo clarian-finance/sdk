@@ -28,7 +28,7 @@ export interface PingResponse {
 
 export interface ListParams {
   readonly limit?: number;
-  /** ISO timestamp: return items created before it (keyset pagination). */
+  /** Id of the last row of the previous page (pages newest first). */
   readonly before?: string;
 }
 

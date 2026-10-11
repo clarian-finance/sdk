@@ -88,3 +88,12 @@ describe("request", () => {
     expect(() => new Clarian({ apiKey: "sk_x", workspaceId: WS })).toThrow("Invalid API key format");
   });
 });
+
+describe("retry eligibility", () => {
+  it("does not retry a POST whose idempotency key is an empty string", async () => {
+    const r = recorder([json(503, { error: "unavailable" }, { "retry-after": "0" }), json(200, { data: {} })]);
+    const c = new Clarian({ apiKey: KEY, workspaceId: WS, fetch: r.fetch });
+    await expect(c.conversions.execute("q1", "")).rejects.toThrow("unavailable");
+    expect(r.calls).toHaveLength(1);
+  });
+});
