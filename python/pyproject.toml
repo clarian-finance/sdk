@@ -31,3 +31,6 @@ Repository = "https://github.com/clarian-finance/sdk"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["clarian*"]
+
+[tool.setuptools.package-data]
+clarian = ["py.typed"]

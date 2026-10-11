@@ -17,7 +17,11 @@ abstract class Resource
 
     protected static function seg(string $id): string
     {
-        return rawurlencode($id);
+        // Dots are encoded so "." and ".." never become path dot-segments.
+        if ($id === '') {
+            throw new \InvalidArgumentException('id is required');
+        }
+        return str_replace('.', '%2E', rawurlencode($id));
     }
 
     /** Money-moving creates: a missing key throws before any network call. */

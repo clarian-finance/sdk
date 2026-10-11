@@ -82,7 +82,7 @@ wallets = clarian.wallets.list()
 clarian.wallets.balance(wallets[0]["id"])
 clarian.crypto.networks()
 # API keys send only to wallets registered in the dashboard whitelist (403 destination_not_whitelisted).
-clarian.crypto.send({"amount_minor": "5000000", "currency": "USDT", "network": "polygon", "to_address": "0x..."}, "send-17")
+send = clarian.crypto.send({"amount_minor": "5000000", "currency": "USDT", "network": "polygon", "to_address": "0x..."}, "send-17")
 ```
 
 ## Customers, KYC and sub-accounts
