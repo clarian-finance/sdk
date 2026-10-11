@@ -6,10 +6,11 @@ import type { CheckoutListParams, ListParams, PingResponse, Row, StatementParams
 type Cfg = HttpClientConfig;
 type Deleted = Readonly<Record<string, unknown>>;
 
-const requireKey = (idempotencyKey: string) => {
-  if (!idempotencyKey) throw new Error("idempotencyKey is required: reuse the same key to retry safely");
-  return idempotencyKey;
-};
+// Money-moving creates: a missing key rejects the promise before any network call.
+const withKey = <T>(idempotencyKey: string, call: (key: string) => Promise<T>): Promise<T> =>
+  idempotencyKey
+    ? call(idempotencyKey)
+    : Promise.reject(new Error("idempotencyKey is required: reuse the same key to retry safely"));
 
 export class Balances {
   constructor(private readonly c: Cfg) {}
@@ -54,7 +55,7 @@ export class Transactions {
 export class PixPayins {
   constructor(private readonly c: Cfg) {}
   create(body: S.CreatePixPayinRequest, idempotencyKey: string) {
-    return request<S.Payment>(this.c, "POST", "pix/payins", { body, idempotencyKey: requireKey(idempotencyKey) });
+    return withKey(idempotencyKey, (k) => request<S.Payment>(this.c, "POST", "pix/payins", { body, idempotencyKey: k }));
   }
   retrieve(id: string) {
     return request<S.Payment>(this.c, "GET", `pix/payins/${seg(id)}`);
@@ -72,7 +73,7 @@ export class PixPayins {
 export class PixPayouts {
   constructor(private readonly c: Cfg) {}
   create(body: S.CreatePixPayoutRequest, idempotencyKey: string) {
-    return request<S.Payment>(this.c, "POST", "pix/payouts", { body, idempotencyKey: requireKey(idempotencyKey) });
+    return withKey(idempotencyKey, (k) => request<S.Payment>(this.c, "POST", "pix/payouts", { body, idempotencyKey: k }));
   }
   retrieve(id: string) {
     return request<S.Payment>(this.c, "GET", `pix/payouts/${seg(id)}`);
@@ -124,7 +125,7 @@ export class Conversions {
 export class Crypto {
   constructor(private readonly c: Cfg) {}
   send(body: S.CreateCryptoSendRequest, idempotencyKey: string) {
-    return request<S.Payment>(this.c, "POST", "crypto/send", { body, idempotencyKey: requireKey(idempotencyKey) });
+    return withKey(idempotencyKey, (k) => request<S.Payment>(this.c, "POST", "crypto/send", { body, idempotencyKey: k }));
   }
   /** Sandbox only. */
   simulate(id: string, body: S.SimulateOutcomeRequest = { status: "completed" }) {
@@ -250,10 +251,7 @@ export class PaymentLinks {
     return request<S.PaymentLinkSplit[]>(this.c, "PUT", `payment-links/${seg(id)}/splits`, { body });
   }
   charge(id: string, body: S.CreateCheckoutChargeRequest, idempotencyKey: string) {
-    return request<S.CheckoutPaymentResult>(this.c, "POST", `payment-links/${seg(id)}/charges`, {
-      body,
-      idempotencyKey: requireKey(idempotencyKey),
-    });
+    return withKey(idempotencyKey, (k) => request<S.CheckoutPaymentResult>(this.c, "POST", `payment-links/${seg(id)}/charges`, { body, idempotencyKey: k }));
   }
 }
 
@@ -264,10 +262,7 @@ export class Checkout {
     return request<S.PublicCheckout>(this.c, "GET", `checkout/${seg(slug)}`);
   }
   pay(slug: string, body: S.CheckoutPayRequest, idempotencyKey: string) {
-    return request<S.CheckoutPaymentResult>(this.c, "POST", `checkout/${seg(slug)}/pay`, {
-      body,
-      idempotencyKey: requireKey(idempotencyKey),
-    });
+    return withKey(idempotencyKey, (k) => request<S.CheckoutPaymentResult>(this.c, "POST", `checkout/${seg(slug)}/pay`, { body, idempotencyKey: k }));
   }
 }
 
