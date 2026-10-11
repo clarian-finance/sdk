@@ -6,7 +6,7 @@ PHP SDK for the Clarian API v2: PIX cash-in and cash-out, BRL/stablecoin quotes 
 
 ```bash
 composer config repositories.clarian vcs https://github.com/clarian-finance/sdk
-composer require clarian-finance/sdk-php:^1.0
+composer require clarian-finance/sdk-php:^0.5
 ```
 
 ## Quick start

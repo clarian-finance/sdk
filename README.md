@@ -7,7 +7,7 @@ TypeScript SDK for the Clarian API v2: PIX cash-in and cash-out, BRL/stablecoin 
 ## Install
 
 ```bash
-npm install github:clarian-finance/sdk#v1.0.0
+npm install github:clarian-finance/sdk#v0.5.0
 ```
 
 ## Quick start

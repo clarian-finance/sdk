@@ -6,7 +6,7 @@ Ruby SDK for the Clarian API v2: PIX cash-in and cash-out, BRL/stablecoin quotes
 
 ```ruby
 # Gemfile
-gem "clarian", git: "https://github.com/clarian-finance/sdk", glob: "ruby/*.gemspec", tag: "v1.0.0"
+gem "clarian", git: "https://github.com/clarian-finance/sdk", glob: "ruby/*.gemspec", tag: "v0.5.0"
 ```
 
 ## Quick start
