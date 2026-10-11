@@ -7,7 +7,7 @@ Requests and replies are plain `dict`s shaped as in the OpenAPI reference (`open
 ## Install
 
 ```bash
-pip install "git+https://github.com/clarian-finance/sdk@v1.0.0#subdirectory=python"
+pip install "git+https://github.com/clarian-finance/sdk@v0.5.0#subdirectory=python"
 ```
 
 ## Quick start
