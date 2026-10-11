@@ -1,196 +1,65 @@
-# Clarian Finance API
+# Clarian API v2
 
-> Payment gateway for Brazil/LATAM. Receive BRL via PIX (cash-in), hold it in a
-> per-workspace ledger balance, and withdraw it via PIX (cash-out) to a
-> pre-registered account. Also: BRL<->stablecoin quotes, on-chain wallet reads,
-> and signed webhooks. This file is self-contained — enough to integrate without
-> other docs. Machine-readable spec: /openapi.yaml. Official SDK: @clarian-finance/sdk.
+> Brazil/LATAM payments and crypto API. Receive BRL by PIX (cash-in), withdraw by PIX (cash-out),
+> convert BRL and stablecoins (quote then execute), hold on-chain wallets, send crypto, manage
+> customers, KYC, payment links and sub-accounts, and get signed webhooks.
+> Spec: https://app.clarian.finance/openapi.json. SDK: @clarian-finance/sdk (this repo).
 
-## Core model
+## Access
 
-- A workspace (partner) is identified by `X-Workspace-Id` (a UUID) and holds a
-  **BRL ledger balance** — this is the partner's account. Cash-in credits it,
-  cash-out debits it. It is NOT a crypto wallet (those are separate, on-chain).
-- You can only withdraw the balance you actually received via your own cash-ins,
-  and only to your workspace's **registered settlement PIX key**.
+- Base URL: `https://api.clarian.finance/v1/live` (key `cl_live_sk_…`) or `/v1/test` (key `cl_test_sk_…`, sandbox, nothing real moves).
+- Headers: `Authorization: Bearer <key>`, `X-Workspace-Id: <workspace uuid>`, `Content-Type: application/json`.
+- Optional `X-Subaccount-Id: <uuid>` acts on a child workspace (wallets, balances, transactions, statement, crypto, pix, payment-links, rfq).
+- Replies: `{ "data": … }`. Errors: `{ "error": "<code>", "message"?: "…" }` with a 4xx/5xx status.
+- Rate limit: 120 requests per minute per key (429 `rate_limited`).
+- Keys carry permissions per area (`pix`, `rfq`, `balances:read`, …); a missing one is 403 `permission_denied`.
 
-## Base URLs
+## Amounts
 
-- Production: `https://api.clarian.finance/functions/v1/api-gateway/live`
-- Sandbox:    `https://api.clarian.finance/functions/v1/api-gateway/test`
+Integer minor units as strings. BRL scale 2 ("1000" = R$ 10,00). USDT/USDC scale 6 ("1000000" = 1 USDT). Balances return `balance_minor` and `scale`.
 
-The key prefix must match the segment: `cl_live_sk_...` on `/live`, `cl_test_sk_...` on `/test`.
-Sandbox (`/test`) has a simulated PIX rail plus sandbox-only helpers (simulate, webhook test/resend).
+## Money-moving creates need `Idempotency-Key`
 
-## Authentication (every request)
+Same key on retry = same payment, never a second debit. Applies to `POST /pix/payins`, `POST /pix/payouts`, `POST /crypto/send`, `POST /payment-links/{id}/charges`, `POST /checkout/{slug}/pay`.
 
-    Authorization: Bearer cl_live_sk_<secret>
-    X-Workspace-Id: <workspace-uuid>
+## Flows
 
-Production keys also enforce an **IP allowlist** — register your server IPs in the
-dashboard, or requests return `403 ip_not_whitelisted`.
+Cash-in:
+1. `POST /pix/payins {amount_minor, currency:"BRL"}` → payment with `pix_qr_code` (copia-e-cola, valid 30 min), status `pending`.
+2. Payer pays. Status `completed`, balance `pending` → `available`. Webhook `payment.completed`.
 
-## Idempotency
+Cash-out:
+1. Optional `POST /pix/payouts/fee {amount_minor}` → `fee_minor`, `debit_minor`.
+2. `POST /pix/payouts {amount_minor, currency:"BRL", pix_key}` → status `processing`. With an API key the money goes to the workspace's registered settlement key (403 `settlement_key_required` until the owner sets one in the dashboard).
+3. `completed` or `failed` (amount and fee return). Webhook `payment.completed` / `payment.failed`.
 
-Send `Idempotency-Key: <unique-per-intent>` on mutating calls. A retry with the
-same key returns the original result and never double-executes. **Required for
-cash-out** (`400 idempotency_key_required` if missing).
+Convert (direction is always base → quote; `side` is ignored):
+1. `POST /rfq/quote {base_currency:"BRL", quote_currency:"USDT", base_amount_minor:"50000"}` → `id`, `quote_amount_minor` (after fees), `fee_minor`, `expires_at`.
+2. `POST /rfq/execute {quote_id}` → 200 `{quote_id, payment, ledger}` settled, or 202 `{quote_id, payment, status:"processing"}`. A quote executes once (409 `quote_not_open`); late is 410 `quote_expired`.
 
-## Errors
+Crypto: `GET /wallets`, `GET /wallets/{id}/balance`, `GET /crypto/networks`, `POST /crypto/send {amount_minor, currency, network, to_address}`.
 
-Non-2xx returns `{ "error": "<code>", "hint": "<optional>" }`. Common codes:
-`missing_or_malformed_authorization`, `invalid_key`, `ip_not_whitelisted`,
-`workspace_mismatch`, `rate_limited` (120 req/min per key), `invalid_amount`,
-`insufficient_balance` (402), `settlement_key_required` (403),
-`idempotency_key_required`, `provider_error` (502).
+Sandbox: `POST /pix/payins/{id}/simulate`, `/pix/payouts/{id}/simulate`, `/crypto/send/{id}/simulate` with `{status:"completed"|"failed"}`.
 
-## Endpoints
+## Webhooks
 
-### GET /ping
-Auth probe. → `{ ok, environment, master_account_id, scope, customer_id }`
+`POST /webhooks {url, events:["payment.completed","payment.failed"]}` returns `secret` once. HTTPS public URLs only.
+Each delivery: body `{id, type, created_at, data:{payment_id, kind, status, amount_minor, currency, payment_link_id}}`,
+headers `x-clarian-signature` = hex HMAC-SHA256(secret, `${x-clarian-timestamp}.${rawBody}`), `x-clarian-timestamp` (ISO-8601), `x-clarian-event`.
+Verify on the raw bytes with a constant-time compare, refuse timestamps older than 5 minutes, dedupe on `id`, answer 2xx.
+`POST /webhooks/{id}/test` sends `test.ping`. `GET /webhooks/deliveries`, `POST /webhooks/deliveries/{id}/resend`.
 
-### POST /pix/payins — receive BRL (generate a PIX charge)
-Request:
+## SDK
 
-    { "amount": 250.00,
-      "payer": { "name": "Maria Silva", "document": { "number": "12345678900" } },
-      "description": "Order #123",        // optional
-      "customer_id": "<uuid>" }            // optional: credit a sub-account
+```ts
+import { Clarian, constructWebhookEvent } from "@clarian-finance/sdk";
+const clarian = new Clarian({ apiKey, workspaceId });
+const charge = await clarian.pix.payins.create({ amount_minor: "25000" }, "order-1");
+const quote = await clarian.conversions.quote({ base_currency: "BRL", quote_currency: "USDT", base_amount_minor: "50000" });
+await clarian.conversions.execute(quote.id!, "convert-1");
+const event = await constructWebhookEvent(rawBody, headers, secret);
+```
 
-Response `201`:
+## Dashboard only
 
-    { "ok": true, "environment": "production",
-      "order": { "id": "<uuid>",            // use this with GET /cash-in/:id
-                 "status": "pending",
-                 "amount": 250,
-                 "currency": "BRL",
-                 "pix": { "qr_code": "<base64 png>",
-                          "copy_paste": "00020101...br.gov.bcb.pix...",
-                          "end_to_end_id": null },
-                 "fee": 0 } }
-
-Show `pix.copy_paste` (EMV / copia-e-cola) and/or render `pix.qr_code`. When the
-payer pays, you receive a `pix_payin.completed` webhook and the ledger is credited
-net of fee.
-
-### GET /cash-in/:id
-Fetch a cash-in by the `order.id` UUID. → `{ ok, environment, order }`.
-
-### POST /pix/payouts/dict — preview a PIX key's owner (before paying out)
-Request: `{ "pix_key": "maria@example.com", "key_type": "EMAIL" }`  (key_type optional: CPF|CNPJ|EMAIL|PHONE|EVP)
-Response: `{ ok, environment, dict: { name, document: { type, number }, keyType, ... } }`
-
-### POST /pix/payouts — withdraw BRL (send PIX)
-Requires `Idempotency-Key`. If your workspace has a registered settlement key,
-send ONLY the amount — the destination is fixed to that key:
-
-    { "amount": 100.00, "description": "Withdrawal" }
-
-Response `201`:
-
-    { "ok": true, "environment": "production",
-      "order": { "id": "<uuid>",
-                 "status": "pending",
-                 "end_to_end_id": "<gowd ref, once known>",
-                 "amount": 100,          // requested
-                 "pix_amount": 98,        // actually sent (after end_customer fee)
-                 "currency": "BRL",
-                 "fee": 2,
-                 "fee_bearer": "end_customer" } }
-
-Refused with `403 settlement_key_required` if no settlement PIX key is registered,
-`402 insufficient_balance` if the ledger balance is too low. On `pix_payout.completed`
-webhook the payout settled; on failure the reserved funds are released.
-
-### GET /cash-out/:id
-Fetch a cash-out by the `order.id` UUID.
-
-### GET /account/balances
-→ `{ ok, environment, balances: [ { currency: "BRL", available, pending, locked } ] }`
-
-### GET /transactions?type=&status=&limit=
-`type` ∈ pix_in | pix_out | on_ramp_deposit | off_ramp_payout. → `{ ok, environment, transactions: [...] }`
-### GET /transactions/:id → `{ ok, environment, transaction }`
-
-### GET /wallets  and  GET /wallets/:id/balance
-On-chain (Turnkey) wallets — crypto, separate from the BRL ledger.
-
-### POST /rfq/quote  and  POST /rfq/execute
-BRL <-> USDT/USDC quotes. quote: `{ base_currency, quote_currency, amount, amount_currency }`
-→ `{ quote_id, rate, base_size, quote_size, expires_at }`; execute: `{ quote_id }`.
-
-### Webhooks CRUD  (POST/GET/PATCH/DELETE /webhooks[/:id])
-Create: `{ "url": "https://you.example.com/clarian", "events": ["pix_payin.completed","pix_payout.completed"] }`
-→ `{ ok, environment, subscription: { id, url, events, ... }, secret: "whsec_..." }`
-The `secret` is shown ONCE — store it. URLs must be public `https://` (internal/loopback hosts are rejected).
-
-### Sandbox-only helpers (require `cl_test_sk_` / `/test` segment; else `404 sandbox_only`)
-
-### POST /pix/payins/:id/simulate
-Body: `{ "status"?: "completed"|"expired"|"failed" }` (default completed)
-→ `200 { ok, environment, order }`
-
-### POST /pix/payouts/:id/simulate
-Body: `{ "status"?: "completed"|"failed" }` (default completed)
-→ `200 { ok, environment, order }`
-
-Magic sandbox PIX keys for payouts: `fail@sandbox.clarian` (fails + refund),
-`pending@sandbox.clarian` (stays pending until simulated).
-
-### POST /webhooks/:id/test
-Body: `{ "event_type": "pix_payin.completed" }` (sample types: pix_payin.created|completed|expired,
-pix_payout.created|completed|failed, checkout.paid)
-→ `202 { ok, environment, event_type, enqueued: { enqueued, delivery_id } }`
-
-### POST /webhooks/deliveries/:id/resend
-→ `202 { ok, delivery_id }`
-
-SDK: `clarian.sandbox.simulateCashIn(id, status?)`, `simulateCashOut(id, status?)`,
-`sendWebhookEvent(subscriptionId, eventType)`, `resendWebhookDelivery(deliveryId)`.
-Also: `signWebhookPayload(body, timestamp, secret)` (hex HMAC for local handler tests),
-`SANDBOX_FAIL_PIX_KEY`, `SANDBOX_PENDING_PIX_KEY`.
-
-## Receiving webhooks (verify EVERY delivery)
-
-Delivery headers: `X-Clarian-Signature` (hex HMAC-SHA256), `X-Clarian-Timestamp`,
-`X-Clarian-Event`, `X-Clarian-Delivery-Id`, `X-Clarian-Idempotency-Key`.
-The signature is `HMAC_SHA256(secret, timestamp + "." + rawBody)` (hex).
-Verify: recompute over the EXACT raw body, constant-time compare, and reject if the
-timestamp is older than ~5 minutes (replay protection). Dedupe on the delivery id.
-Event types include: `pix_payin.completed`, `pix_payin.expired`, `pix_payout.completed`,
-`pix_payout.failed`, `checkout.completed`, `checkout.expired`, `checkout.failed`,
-`rfq.executed`, `rfq.failed`.
-
-## SDK (recommended)
-
-    npm install github:clarian-finance/sdk#v0.4.1
-
-    import { Clarian, constructWebhookEvent, extractWebhookHeaders } from "@clarian-finance/sdk";
-
-    const clarian = new Clarian({
-      apiKey: process.env.CLARIAN_API_KEY!,        // cl_live_sk_... or cl_test_sk_...
-      workspaceId: process.env.CLARIAN_WORKSPACE_ID!,
-    });
-
-    // Receive BRL
-    const deposit = await clarian.cashIn.create({
-      amount: 250,
-      payer: { name: "Maria", document: { number: "12345678900" } },
-    });
-    console.log(deposit.pix.copy_paste);
-
-    // Withdraw BRL (idempotency key required)
-    const payout = await clarian.cashOut.create(
-      { amount: 100 },
-      "withdrawal-2026-07-01-001",
-    );
-
-    // Balances
-    const balances = await clarian.balances.list();
-
-    // Verify a webhook (Express-style handler with the raw body)
-    const headers = extractWebhookHeaders(req.headers);
-    const event = await constructWebhookEvent(rawBody, headers, webhookSecret);
-    // event.event, event.data
-
-Errors throw `ClarianError` with `.status`, `.code`, `.detail`.
+Team invites and roles, approval votes, API key create/rotate, payout accounts, whitelist entries and workspace settings changes need a person's own 2FA and are not on the API. Their reads are.

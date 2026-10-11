@@ -1,7 +1,7 @@
 {
   "name": "@clarian-finance/sdk",
-  "version": "0.4.1",
-  "description": "Official TypeScript SDK for the Clarian Finance API",
+  "version": "1.0.0",
+  "description": "Official TypeScript SDK for the Clarian API v2: PIX, conversions, wallets, webhooks",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -20,6 +20,7 @@
   },
   "files": [
     "dist",
+    "openapi.json",
     "llms.txt",
     "README.md",
     "README.pt-BR.md",
@@ -27,9 +28,11 @@
   ],
   "scripts": {
     "build": "tsup",
+    "gen": "node scripts/gen-types.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "npx tsc --noEmit",
+    "e2e": "npm run build && node e2e/sandbox.ts",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
