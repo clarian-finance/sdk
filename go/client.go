@@ -76,7 +76,13 @@ type Option func(*Client)
 func WithBaseURL(u string) Option { return func(c *Client) { c.baseURL = strings.TrimRight(u, "/") } }
 
 // WithHTTPClient sets the HTTP client (timeouts, proxies, tests). Default timeout 30s.
-func WithHTTPClient(h *http.Client) Option { return func(c *Client) { c.http = h } }
+func WithHTTPClient(h *http.Client) Option {
+	return func(c *Client) {
+		if h != nil {
+			c.http = h
+		}
+	}
+}
 
 // WithMaxRetries sets retries for 429/502/503/504 and network errors. Default 2.
 func WithMaxRetries(n int) Option { return func(c *Client) { c.maxRetries = n } }
