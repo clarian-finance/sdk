@@ -90,9 +90,9 @@ outcomes.push({ step: "cash-out debited 10.00 + fee", ok: brl(afterIn) - brl(aft
 await step("conversions.prices", () => clarian.conversions.prices(["USDT"]));
 const quote = await step("conversions.quote", () => clarian.conversions.quote({ base_currency: "BRL", quote_currency: "USDT", base_amount_minor: 5000n }), "Quote");
 if (quote?.id) {
-  const exec = await step("conversions.execute", () => clarian.conversions.execute(quote.id!, key()));
+  const exec = await step("conversions.execute", () => clarian.conversions.execute(quote.id!));
   outcomes.push({ step: "convert debited BRL, credited USDT", ok: exec?.ledger?.from_currency === "BRL" && exec?.ledger?.to_currency === "USDT", note: JSON.stringify(exec?.ledger ?? {}) });
-  await expectError("conversions.execute twice", "quote_not_open", () => clarian.conversions.execute(quote.id!, key()));
+  await expectError("conversions.execute twice", "quote_not_open", () => clarian.conversions.execute(quote.id!));
 }
 
 // Wallets and crypto

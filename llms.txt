@@ -56,7 +56,7 @@ import { Clarian, constructWebhookEvent } from "@clarian-finance/sdk";
 const clarian = new Clarian({ apiKey, workspaceId });
 const charge = await clarian.pix.payins.create({ amount_minor: "25000" }, "order-1");
 const quote = await clarian.conversions.quote({ base_currency: "BRL", quote_currency: "USDT", base_amount_minor: "50000" });
-await clarian.conversions.execute(quote.id!, "convert-1");
+await clarian.conversions.execute(quote.id!);
 const event = await constructWebhookEvent(rawBody, headers, secret);
 ```
 

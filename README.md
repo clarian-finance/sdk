@@ -68,7 +68,7 @@ const quote = await clarian.conversions.quote({ base_currency: "BRL", quote_curr
 quote.quote_amount_minor; // USDT you receive (scale 6), after fees
 quote.expires_at;         // execute before this
 
-const result = await clarian.conversions.execute(quote.id!, "convert-981");
+const result = await clarian.conversions.execute(quote.id!);
 result.ledger?.to_minor;  // settled amount; absent while result.status === "processing"
 ```
 
