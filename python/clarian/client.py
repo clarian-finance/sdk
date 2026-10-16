@@ -271,6 +271,23 @@ class Crypto(_Resource):
         return self._h.request("GET", "crypto/networks")
 
 
+class Trading(_Resource):
+    def summary(self):
+        return self._h.request("GET", "trading/summary")
+
+    def deposit(self, body: Body, idempotency_key: str):
+        key = _require_key(idempotency_key)
+        return self._h.request("POST", "trading/deposits", body=body, idempotency_key=key)
+
+    def withdraw(self, body: Body, idempotency_key: str):
+        key = _require_key(idempotency_key)
+        return self._h.request("POST", "trading/withdrawals", body=body, idempotency_key=key)
+
+    def crypto_withdraw(self, body: Body, idempotency_key: str):
+        key = _require_key(idempotency_key)
+        return self._h.request("POST", "trading/crypto-withdrawals", body=body, idempotency_key=key)
+
+
 class Customers(_Resource):
     def list(self):
         return self._h.request("GET", "customers")
@@ -484,6 +501,7 @@ class Clarian:
         self.pix = Pix(h)
         self.conversions = Conversions(h)
         self.crypto = Crypto(h)
+        self.trading = Trading(h)
         self.customers = Customers(h)
         self.kyc = Kyc(h)
         self.whitelist = Whitelist(h)

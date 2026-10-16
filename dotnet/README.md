@@ -171,7 +171,7 @@ catch (ClarianException e) when (e.Code == "insufficient_balance")
 }
 ```
 
-Money-moving creates (`Pix.Payins.CreateAsync`, `Pix.Payouts.CreateAsync`, `Crypto.SendAsync`, `PaymentLinks.ChargeAsync`, `Checkout.PayAsync`) require an idempotency key; an empty one throws `ArgumentException` before any request. Retrying with the same key returns the same payment and never pays twice. The SDK retries 429/502/503/504 and network errors up to `MaxRetries` (default 2), honoring `Retry-After`, but only reads, deletes and calls that carry an idempotency key. The API allows 120 requests per minute per key.
+Money-moving creates (`Pix.Payins.CreateAsync`, `Pix.Payouts.CreateAsync`, `Crypto.SendAsync`, `Trading.DepositAsync`, `Trading.WithdrawAsync`, `Trading.CryptoWithdrawAsync`, `PaymentLinks.ChargeAsync`, `Checkout.PayAsync`) require an idempotency key; an empty one throws `ArgumentException` before any request. Retrying with the same key returns the same payment and never pays twice. The SDK retries 429/502/503/504 and network errors up to `MaxRetries` (default 2), honoring `Retry-After`, but only reads, deletes and calls that carry an idempotency key. The API allows 120 requests per minute per key.
 
 Options: `BaseUrl` (default `https://api.clarian.finance`), `Timeout` (default 30 s), `MaxRetries`, `SubaccountId`, `HttpClient` (bring your own, e.g. from `IHttpClientFactory`). Every method takes an optional `CancellationToken`.
 
@@ -191,6 +191,7 @@ Every method is `async` and ends in `Async`.
 | `Conversions` | `Quote`, `Execute`, `Prices` |
 | `Wallets` | `List`, `Create`, `Retrieve`, `Balance`, `Transactions` |
 | `Crypto` | `Send`, `Simulate`, `Networks` |
+| `Trading` | `Summary`, `Deposit`, `Withdraw`, `CryptoWithdraw` |
 | `Transactions` | `List`, `Retrieve`, `Statement` |
 | `Customers` | `List`, `Create`, `Retrieve`, `Update` |
 | `Kyc` | `List`, `Create`, `Retrieve`, `ListRfi`, `AnswerRfi` |

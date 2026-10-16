@@ -216,3 +216,18 @@ def test_redirects_are_not_followed():
         srv.shutdown()
     assert status == 302
     assert seen == [("/x", "Bearer k")]
+
+
+def test_trading_crypto_withdraw_sends_key():
+    fake = Fake((200, {"data": {"id": "w1"}}))
+    client(fake).trading.crypto_withdraw({"amount_minor": "5000000", "currency": "USDT"}, "tw-1")
+    method, url, headers, _ = fake.calls[0]
+    assert method == "POST" and url.endswith("/v1/test/trading/crypto-withdrawals")
+    assert headers["Idempotency-Key"] == "tw-1"
+
+
+def test_trading_deposit_empty_key_makes_no_call():
+    fake = Fake((200, {}))
+    with pytest.raises(ValueError):
+        client(fake).trading.deposit({"amount_minor": "100"}, "")
+    assert fake.calls == []

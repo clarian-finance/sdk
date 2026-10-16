@@ -36,6 +36,7 @@ public sealed class ClarianClient
     public Transactions Transactions { get; }
     public Pix Pix { get; }
     public Conversions Conversions { get; }
+    public Trading Trading { get; }
     public Crypto Crypto { get; }
     public Customers Customers { get; }
     public Kyc Kyc { get; }
@@ -66,7 +67,7 @@ public sealed class ClarianClient
             options.Timeout ?? TimeSpan.FromSeconds(30), Http.ResolveEnvironment(options.ApiKey),
             options.SubaccountId, options.HttpClient ?? SharedHttp, options.MaxRetries);
         Balances = new(c); Wallets = new(c); Transactions = new(c); Pix = new(c); Conversions = new(c);
-        Crypto = new(c); Customers = new(c); Kyc = new(c); Whitelist = new(c); BankAccounts = new(c);
+        Trading = new(c); Crypto = new(c); Customers = new(c); Kyc = new(c); Whitelist = new(c); BankAccounts = new(c);
         Webhooks = new(c); PaymentLinks = new(c); Checkout = new(c); Subaccounts = new(c); ApiKeys = new(c);
         Settings = new(c); Notifications = new(c); Team = new(c); Workflows = new(c); Approvals = new(c); Treasury = new(c);
     }

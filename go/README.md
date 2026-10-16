@@ -91,6 +91,15 @@ _, err = c.Crypto.Networks(ctx)
 _, err = c.Crypto.Send(ctx, clarian.Row{"amount_minor": "5000000", "currency": "USDT", "network": "polygon", "to_address": "0x…"}, "send-17")
 ```
 
+## Trading balance
+
+```go
+_, err = c.Trading.Summary(ctx)
+_, err = c.Trading.Deposit(ctx, clarian.Row{"amount_minor": "100000"}, "td-1")       // BRL available -> trading
+_, err = c.Trading.Withdraw(ctx, clarian.Row{"amount_minor": "100000"}, "tw-1")      // BRL trading -> available
+_, err = c.Trading.CryptoWithdraw(ctx, clarian.Row{"amount_minor": "5000000", "currency": "USDT", "network": "polygon"}, "tc-1")
+```
+
 ## Customers, KYC and sub-accounts
 
 ```go
@@ -156,7 +165,7 @@ var e *clarian.Error
 if errors.As(err, &e) && e.Code == "insufficient_balance" { /* … */ }
 ```
 
-Money-moving creates (`Pix.Payins.Create`, `Pix.Payouts.Create`, `Crypto.Send`, `PaymentLinks.Charge`, `Checkout.Pay`) require an idempotency key; an empty key returns `ErrIdempotencyKeyRequired` without a request. Retrying with the same key returns the same payment and never pays twice. The SDK retries 429/502/503/504 and network errors up to `WithMaxRetries` (default 2) and honors `Retry-After`, but only for reads, deletes and calls that carry an idempotency key. `Conversions.Execute` is never retried. The API allows 120 requests per minute per key.
+Money-moving creates (`Pix.Payins.Create`, `Pix.Payouts.Create`, `Crypto.Send`, `Trading.Deposit`, `Trading.Withdraw`, `Trading.CryptoWithdraw`, `PaymentLinks.Charge`, `Checkout.Pay`) require an idempotency key; an empty key returns `ErrIdempotencyKeyRequired` without a request. Retrying with the same key returns the same payment and never pays twice. The SDK retries 429/502/503/504 and network errors up to `WithMaxRetries` (default 2) and honors `Retry-After`, but only for reads, deletes and calls that carry an idempotency key. `Conversions.Execute` is never retried. The API allows 120 requests per minute per key.
 
 ## Not on the API
 
@@ -172,6 +181,7 @@ Actions that need a person's own second factor stay in the dashboard: inviting o
 | `Conversions` | `Quote`, `Execute`, `Prices` |
 | `Wallets` | `List`, `Create`, `Retrieve`, `Balance`, `Transactions` |
 | `Crypto` | `Send`, `Simulate`, `Networks` |
+| `Trading` | `Summary`, `Deposit`, `Withdraw`, `CryptoWithdraw` |
 | `Transactions` | `List`, `Retrieve`, `Statement` |
 | `Customers` | `List`, `Create`, `Retrieve`, `Update` |
 | `Kyc` | `List`, `Create`, `Retrieve`, `ListRfi`, `AnswerRfi` |

@@ -121,6 +121,26 @@ final class Conversions extends Resource
     }
 }
 
+final class Trading extends Resource
+{
+    public function summary(): array { return $this->h->request('GET', 'trading/summary'); }
+    /** BRL `available` -> `trading`. Conversions spend BRL from `trading`. */
+    public function deposit(array $body, string $idempotencyKey): array
+    {
+        return $this->h->request('POST', 'trading/deposits', body: $body, idempotencyKey: self::requireKey($idempotencyKey));
+    }
+    /** BRL `trading` -> `available`. */
+    public function withdraw(array $body, string $idempotencyKey): array
+    {
+        return $this->h->request('POST', 'trading/withdrawals', body: $body, idempotencyKey: self::requireKey($idempotencyKey));
+    }
+    /** USDT/USDC `trading` -> your own wallet on `network`. Body: amount_minor, currency?, network?. */
+    public function cryptoWithdraw(array $body, string $idempotencyKey): array
+    {
+        return $this->h->request('POST', 'trading/crypto-withdrawals', body: $body, idempotencyKey: self::requireKey($idempotencyKey));
+    }
+}
+
 final class Crypto extends Resource
 {
     public function send(array $body, string $idempotencyKey): array

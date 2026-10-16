@@ -686,3 +686,15 @@ export interface RfqExecuteResult {
     readonly to_minor?: string;
   };
 }
+
+export interface TradingSummary {
+  readonly currency: "BRL";
+  readonly scale: number;
+  /** Integer minor units. */
+  readonly trading_minor: string;
+  /** BRL that can leave trading now; 0 while under review. */
+  readonly withdrawable_minor: string;
+  /** Ledger and provider proofs disagree: trading withdrawals are frozen. */
+  readonly under_review: boolean;
+  readonly locked_until: string | null;
+}

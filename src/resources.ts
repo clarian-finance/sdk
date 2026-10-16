@@ -125,6 +125,33 @@ export class Conversions {
   }
 }
 
+type Minor = string | bigint;
+
+/** The pooled exchange balance: send BRL in, convert there, withdraw coins to your wallet. */
+export class Trading {
+  constructor(private readonly c: Cfg) {}
+  summary() {
+    return request<S.TradingSummary>(this.c, "GET", "trading/summary");
+  }
+  /** BRL `available` → `trading`. Conversions spend BRL from `trading`. */
+  deposit(body: { readonly amount_minor: Minor }, idempotencyKey: string) {
+    return withKey(idempotencyKey, (k) => request<S.Payment>(this.c, "POST", "trading/deposits", { body, idempotencyKey: k }));
+  }
+  /** BRL `trading` → `available`. */
+  withdraw(body: { readonly amount_minor: Minor }, idempotencyKey: string) {
+    return withKey(idempotencyKey, (k) => request<S.Payment>(this.c, "POST", "trading/withdrawals", { body, idempotencyKey: k }));
+  }
+  /** USDT/USDC `trading` → your own wallet on `network`, where it becomes `available`. */
+  cryptoWithdraw(
+    body: { readonly amount_minor: Minor; readonly currency?: "USDT" | "USDC"; readonly network?: string },
+    idempotencyKey: string,
+  ) {
+    return withKey(idempotencyKey, (k) =>
+      request<S.Payment>(this.c, "POST", "trading/crypto-withdrawals", { body, idempotencyKey: k }),
+    );
+  }
+}
+
 export class Crypto {
   constructor(private readonly c: Cfg) {}
   send(body: S.CreateCryptoSendRequest, idempotencyKey: string) {

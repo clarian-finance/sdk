@@ -9,6 +9,7 @@ export class Clarian {
   readonly transactions: R.Transactions;
   readonly pix: R.Pix;
   readonly conversions: R.Conversions;
+  readonly trading: R.Trading;
   readonly crypto: R.Crypto;
   readonly customers: R.Customers;
   readonly kyc: R.Kyc;
@@ -41,6 +42,7 @@ export class Clarian {
     this.transactions = new R.Transactions(c);
     this.pix = new R.Pix(c);
     this.conversions = new R.Conversions(c);
+    this.trading = new R.Trading(c);
     this.crypto = new R.Crypto(c);
     this.customers = new R.Customers(c);
     this.kyc = new R.Kyc(c);

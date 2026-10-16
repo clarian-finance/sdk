@@ -155,6 +155,9 @@ func TestIdempotencyKeyRequired(t *testing.T) {
 		func() error { _, e := c.Pix.Payins.Create(ctx, Row{}, ""); return e },
 		func() error { _, e := c.Pix.Payouts.Create(ctx, Row{}, ""); return e },
 		func() error { _, e := c.Crypto.Send(ctx, Row{}, ""); return e },
+		func() error { _, e := c.Trading.Deposit(ctx, Row{"amount_minor": "100"}, ""); return e },
+		func() error { _, e := c.Trading.Withdraw(ctx, Row{}, ""); return e },
+		func() error { _, e := c.Trading.CryptoWithdraw(ctx, Row{}, ""); return e },
 		func() error { _, e := c.PaymentLinks.Charge(ctx, "l", Row{}, ""); return e },
 		func() error { _, e := c.Checkout.Pay(ctx, "s", Row{}, ""); return e },
 	}
@@ -260,5 +263,19 @@ func TestPrintingMasksKey(t *testing.T) {
 		if out := fmt.Sprintf(f, c) + fmt.Sprintf(f, *c); strings.Contains(out, "cl_test_sk_secret") {
 			t.Fatalf("%s leaked key: %s", f, out)
 		}
+	}
+}
+
+func TestTradingCryptoWithdraw(t *testing.T) {
+	var got *http.Request
+	c, _ := server(t, func(w http.ResponseWriter, r *http.Request) {
+		got = r
+		w.Write([]byte(`{"data":{"id":"p_1"}}`))
+	})
+	if _, err := c.Trading.CryptoWithdraw(context.Background(), Row{"amount_minor": "5000000", "currency": "USDT", "network": "polygon"}, "tw-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got.Method != "POST" || got.URL.Path != "/v1/test/trading/crypto-withdrawals" || got.Header.Get("Idempotency-Key") != "tw-1" {
+		t.Fatalf("got %s %s key=%q", got.Method, got.URL.Path, got.Header.Get("Idempotency-Key"))
 	}
 }
