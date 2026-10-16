@@ -34,6 +34,7 @@ public final class ClarianClient {
     public final Transactions transactions = new Transactions();
     public final Pix pix = new Pix();
     public final Conversions conversions = new Conversions();
+    public final Trading trading = new Trading();
     public final Crypto crypto = new Crypto();
     public final Customers customers = new Customers();
     public final Kyc kyc = new Kyc();
@@ -338,6 +339,16 @@ public final class ClarianClient {
             q.put("symbols", symbols == null ? null : String.join(",", symbols));
             return get("prices", q);
         }
+    }
+
+    public final class Trading {
+        public Map<String, Object> summary() { return get("trading/summary"); }
+        /** BRL {@code available} to {@code trading}. Conversions spend BRL from {@code trading}. Body: {@code amount_minor}. */
+        public Map<String, Object> deposit(Map<String, ?> body, String idempotencyKey) { return money("trading/deposits", body, idempotencyKey); }
+        /** BRL {@code trading} to {@code available}. Body: {@code amount_minor}. */
+        public Map<String, Object> withdraw(Map<String, ?> body, String idempotencyKey) { return money("trading/withdrawals", body, idempotencyKey); }
+        /** USDT/USDC {@code trading} to your own wallet on {@code network}. Body: {@code amount_minor}, optional {@code currency}, {@code network}. */
+        public Map<String, Object> cryptoWithdraw(Map<String, ?> body, String idempotencyKey) { return money("trading/crypto-withdrawals", body, idempotencyKey); }
     }
 
     public final class Crypto {

@@ -53,6 +53,7 @@ type Client struct {
 	Pix           *Pix
 	Conversions   *Conversions
 	Crypto        *Crypto
+	Trading       *Trading
 	Customers     *Customers
 	Kyc           *Kyc
 	Whitelist     *Whitelist
@@ -140,6 +141,7 @@ func New(apiKey, workspaceID string, opts ...Option) (*Client, error) {
 	c.Pix = &Pix{Payins: &PixPayins{c}, Payouts: &PixPayouts{c}}
 	c.Conversions = &Conversions{c}
 	c.Crypto = &Crypto{c}
+	c.Trading = &Trading{c}
 	c.Customers = &Customers{c}
 	c.Kyc = &Kyc{c}
 	c.Whitelist = &Whitelist{c}

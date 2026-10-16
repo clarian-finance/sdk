@@ -155,7 +155,7 @@ try {
 }
 ```
 
-Money-moving creates (`pix->payins->create`, `pix->payouts->create`, `crypto->send`, `paymentLinks->charge`, `checkout->pay`) require an idempotency key; an empty one throws before any request. Retrying with the same key returns the same payment and never pays twice. The SDK retries 429/502/503/504 and network errors up to `maxRetries` (default 2), honoring `Retry-After`, but only reads, deletes and calls that carry an idempotency key. `conversions->execute` is never retried. The API allows 120 requests per minute per key.
+Money-moving creates (`pix->payins->create`, `pix->payouts->create`, `crypto->send`, `trading->deposit`, `trading->withdraw`, `trading->cryptoWithdraw`, `paymentLinks->charge`, `checkout->pay`) require an idempotency key; an empty one throws before any request. Retrying with the same key returns the same payment and never pays twice. The SDK retries 429/502/503/504 and network errors up to `maxRetries` (default 2), honoring `Retry-After`, but only reads, deletes and calls that carry an idempotency key. `conversions->execute` is never retried. The API allows 120 requests per minute per key.
 
 ## Not on the API
 
@@ -171,6 +171,7 @@ Actions that need a person's own second factor stay in the dashboard: inviting o
 | `conversions` | `quote`, `execute`, `prices` |
 | `wallets` | `list`, `create`, `retrieve`, `balance`, `transactions` |
 | `crypto` | `send`, `simulate`, `networks` |
+| `trading` | `summary`, `deposit`, `withdraw`, `cryptoWithdraw` |
 | `transactions` | `list`, `retrieve`, `statement` |
 | `customers` | `list`, `create`, `retrieve`, `update` |
 | `kyc` | `list`, `create`, `retrieve`, `listRfi`, `answerRfi` |

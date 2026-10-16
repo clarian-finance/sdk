@@ -76,6 +76,27 @@ final class ClientTest extends TestCase
         $this->client($t)->pix->payouts->fee(['amount_minor' => 10.5]);
     }
 
+    public function testTradingCryptoWithdrawSendsIdempotencyKey(): void
+    {
+        $t = new FakeTransport([self::ok(['id' => 'p1'])]);
+        $this->client($t)->trading->cryptoWithdraw(['amount_minor' => '5000000', 'currency' => 'USDT', 'network' => 'polygon'], 'tw-1');
+        $c = $t->calls[0];
+        $this->assertSame('POST', $c['method']);
+        $this->assertSame('https://api.local/v1/test/trading/crypto-withdrawals', $c['url']);
+        $this->assertSame('tw-1', $c['headers']['Idempotency-Key']);
+    }
+
+    public function testTradingDepositRejectsEmptyKeyWithoutRequest(): void
+    {
+        $t = new FakeTransport([]);
+        try {
+            $this->client($t)->trading->deposit(['amount_minor' => '100'], '');
+            $this->fail('expected InvalidArgumentException');
+        } catch (\InvalidArgumentException) {
+        }
+        $this->assertSame([], $t->calls);
+    }
+
     public function testInvalidKeyRejected(): void
     {
         $this->expectException(\InvalidArgumentException::class);

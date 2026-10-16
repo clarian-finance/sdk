@@ -3,7 +3,7 @@
 module Clarian
   # Entry point. The key prefix picks the environment: cl_test_sk_ -> /v1/test, cl_live_sk_ -> /v1/live.
   class Client
-    attr_reader :environment, :balances, :wallets, :transactions, :pix, :conversions, :crypto, :customers, :kyc,
+    attr_reader :environment, :balances, :wallets, :transactions, :pix, :conversions, :trading, :crypto, :customers, :kyc,
                 :whitelist, :bank_accounts, :webhooks, :payment_links, :checkout, :subaccounts, :api_keys,
                 :settings, :notifications, :team, :workflows, :approvals, :treasury
 
@@ -20,6 +20,7 @@ module Clarian
       @transactions = Transactions.new(@http)
       @pix = Pix.new(@http)
       @conversions = Conversions.new(@http)
+      @trading = Trading.new(@http)
       @crypto = Crypto.new(@http)
       @customers = Customers.new(@http)
       @kyc = Kyc.new(@http)

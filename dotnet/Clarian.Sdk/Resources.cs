@@ -99,6 +99,21 @@ public sealed class Conversions : Resource
         Get("prices", Q(("symbols", symbols is null ? null : string.Join(",", symbols))), ct);
 }
 
+public sealed class Trading : Resource
+{
+    internal Trading(ClientConfig c) : base(c) { }
+    public Task<JsonElement> SummaryAsync(CancellationToken ct = default) => Get("trading/summary", ct: ct);
+    /// <summary>BRL available to trading. Body: <c>new { amount_minor = "100000" }</c>.</summary>
+    public Task<JsonElement> DepositAsync(object body, string idempotencyKey, CancellationToken ct = default) =>
+        Send(HttpMethod.Post, "trading/deposits", body, RequireKey(idempotencyKey), ct);
+    /// <summary>BRL trading to available.</summary>
+    public Task<JsonElement> WithdrawAsync(object body, string idempotencyKey, CancellationToken ct = default) =>
+        Send(HttpMethod.Post, "trading/withdrawals", body, RequireKey(idempotencyKey), ct);
+    /// <summary>USDT/USDC trading to your own wallet on <c>network</c>. Body: <c>new { amount_minor, currency, network }</c>.</summary>
+    public Task<JsonElement> CryptoWithdrawAsync(object body, string idempotencyKey, CancellationToken ct = default) =>
+        Send(HttpMethod.Post, "trading/crypto-withdrawals", body, RequireKey(idempotencyKey), ct);
+}
+
 public sealed class Crypto : Resource
 {
     internal Crypto(ClientConfig c) : base(c) { }

@@ -90,6 +90,26 @@ module Clarian
     def prices(symbols = nil) = get("prices", { symbols: symbols&.join(",") })
   end
 
+  # BRL moves between `available` and `trading`; conversions spend BRL from `trading`.
+  class Trading < Resource
+    def summary = get("trading/summary")
+
+    # BRL available -> trading.
+    def deposit(body, idempotency_key)
+      with_key(idempotency_key) { |k| post("trading/deposits", body, idempotency_key: k) }
+    end
+
+    # BRL trading -> available.
+    def withdraw(body, idempotency_key)
+      with_key(idempotency_key) { |k| post("trading/withdrawals", body, idempotency_key: k) }
+    end
+
+    # USDT/USDC trading -> your own wallet on `network`. Body: amount_minor, currency?, network?
+    def crypto_withdraw(body, idempotency_key)
+      with_key(idempotency_key) { |k| post("trading/crypto-withdrawals", body, idempotency_key: k) }
+    end
+  end
+
   class Crypto < Resource
     def send(body, idempotency_key) # ponytail: shadows Object#send to match the TS name; use __send__ for dynamic dispatch
       with_key(idempotency_key) { |k| post("crypto/send", body, idempotency_key: k) }

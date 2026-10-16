@@ -151,7 +151,7 @@ except ClarianError as e:
         ...
 ```
 
-Money-moving creates (`pix.payins.create`, `pix.payouts.create`, `crypto.send`, `payment_links.charge`, `checkout.pay`) require an idempotency key; an empty one raises `ValueError` before any request. Retrying with the same key returns the same payment and never pays twice. The SDK retries 429/502/503/504 and network errors up to `max_retries` (default 2), honoring `Retry-After`, but only reads, deletes and calls that carry an idempotency key. The API allows 120 requests per minute per key.
+Money-moving creates (`pix.payins.create`, `pix.payouts.create`, `crypto.send`, `trading.deposit`, `trading.withdraw`, `trading.crypto_withdraw`, `payment_links.charge`, `checkout.pay`) require an idempotency key; an empty one raises `ValueError` before any request. Retrying with the same key returns the same payment and never pays twice. The SDK retries 429/502/503/504 and network errors up to `max_retries` (default 2), honoring `Retry-After`, but only reads, deletes and calls that carry an idempotency key. The API allows 120 requests per minute per key.
 
 ## Not on the API
 
@@ -167,6 +167,7 @@ Actions that need a person's own second factor stay in the dashboard: inviting o
 | `conversions` | `quote`, `execute`, `prices` |
 | `wallets` | `list`, `create`, `retrieve`, `balance`, `transactions` |
 | `crypto` | `send`, `simulate`, `networks` |
+| `trading` | `summary`, `deposit`, `withdraw`, `crypto_withdraw` |
 | `transactions` | `list`, `retrieve`, `statement` |
 | `customers` | `list`, `create`, `retrieve`, `update` |
 | `kyc` | `list`, `create`, `retrieve`, `list_rfi`, `answer_rfi` |

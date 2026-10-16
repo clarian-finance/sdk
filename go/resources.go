@@ -112,6 +112,27 @@ func (r *Conversions) Prices(ctx context.Context, symbols ...string) (Row, error
 	return get[Row](ctx, r.c, "prices", Params{"symbols": strings.Join(symbols, ",")})
 }
 
+type Trading struct{ c *Client }
+
+func (r *Trading) Summary(ctx context.Context) (Row, error) {
+	return get[Row](ctx, r.c, "trading/summary", nil)
+}
+
+// Deposit moves BRL available -> trading. Conversions spend BRL from trading.
+func (r *Trading) Deposit(ctx context.Context, body Row, idempotencyKey string) (Row, error) {
+	return postKeyed[Row](ctx, r.c, "trading/deposits", body, idempotencyKey)
+}
+
+// Withdraw moves BRL trading -> available.
+func (r *Trading) Withdraw(ctx context.Context, body Row, idempotencyKey string) (Row, error) {
+	return postKeyed[Row](ctx, r.c, "trading/withdrawals", body, idempotencyKey)
+}
+
+// CryptoWithdraw moves USDT/USDC trading -> your own wallet on network, where it becomes available.
+func (r *Trading) CryptoWithdraw(ctx context.Context, body Row, idempotencyKey string) (Row, error) {
+	return postKeyed[Row](ctx, r.c, "trading/crypto-withdrawals", body, idempotencyKey)
+}
+
 type Crypto struct{ c *Client }
 
 func (r *Crypto) Send(ctx context.Context, body Row, idempotencyKey string) (Row, error) {

@@ -142,6 +142,21 @@ class TestClient < Minitest::Test
     assert_equal 2, @t.calls.size
   end
 
+  def test_trading_crypto_withdraw
+    c = client([200, { "data" => { "id" => "p" } }])
+    c.trading.crypto_withdraw({ amount_minor: "5000000", currency: "USDT", network: "polygon" }, "tw-1")
+    call = @t.calls.last
+    assert_equal "POST", call[:method]
+    assert_equal "https://api.clarian.finance/v1/test/trading/crypto-withdrawals", call[:url]
+    assert_equal "tw-1", call[:headers]["Idempotency-Key"]
+  end
+
+  def test_trading_deposit_empty_key_refused
+    c = client([200, { "data" => {} }])
+    assert_raises(ArgumentError) { c.trading.deposit({ amount_minor: "1000" }, "") }
+    assert_empty @t.calls
+  end
+
   def test_dot_and_empty_ids_refused
     c = client([200, { "data" => {} }])
     ["", ".", ".."].each { |id| assert_raises(ArgumentError) { c.wallets.retrieve(id) } }

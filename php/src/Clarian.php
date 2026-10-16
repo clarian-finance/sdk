@@ -15,6 +15,7 @@ final class Clarian
     public readonly R\Pix $pix;
     public readonly R\Conversions $conversions;
     public readonly R\Crypto $crypto;
+    public readonly R\Trading $trading;
     public readonly R\Customers $customers;
     public readonly R\Kyc $kyc;
     public readonly R\Whitelist $whitelist;
@@ -65,6 +66,7 @@ final class Clarian
         $this->pix = new R\Pix($h);
         $this->conversions = new R\Conversions($h);
         $this->crypto = new R\Crypto($h);
+        $this->trading = new R\Trading($h);
         $this->customers = new R\Customers($h);
         $this->kyc = new R\Kyc($h);
         $this->whitelist = new R\Whitelist($h);

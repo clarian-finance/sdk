@@ -158,6 +158,24 @@ public class ClarianClientTests
     }
 
     [Fact]
+    public async Task TradingCryptoWithdrawSendsKey()
+    {
+        var (c, h) = Make(_ => Ok());
+        await c.Trading.CryptoWithdrawAsync(new { amount_minor = "1000000", currency = "USDT", network = "tron" }, "tw-1");
+        Assert.Equal("POST", h.Last.Method);
+        Assert.Equal("/v1/test/trading/crypto-withdrawals", h.Last.Path);
+        Assert.Equal("tw-1", h.Last.Headers["Idempotency-Key"]);
+    }
+
+    [Fact]
+    public async Task TradingDepositRequiresKey()
+    {
+        var (c, h) = Make(_ => Ok());
+        await Assert.ThrowsAsync<ArgumentException>(() => c.Trading.DepositAsync(new { amount_minor = "1" }, ""));
+        Assert.Empty(h.Requests);
+    }
+
+    [Fact]
     public async Task MoneyCreatesRequireIdempotencyKey()
     {
         var (c, h) = Make(_ => Ok());

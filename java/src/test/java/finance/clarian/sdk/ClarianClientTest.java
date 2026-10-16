@@ -110,6 +110,21 @@ class ClarianClientTest {
         assertEquals(0, f.calls.size());
     }
 
+    @Test void tradingCryptoWithdrawSendsIdempotencyKey() {
+        Fake f = new Fake(n -> json(201, "{\"data\":{\"id\":\"p2\"}}"));
+        client(f).trading.cryptoWithdraw(Map.of("amount_minor", "5000000", "currency", "USDC", "network", "polygon"), "k-2");
+        Call c = f.calls.get(0);
+        assertEquals("POST", c.method());
+        assertEquals("https://x/v1/test/trading/crypto-withdrawals", c.url());
+        assertEquals("k-2", c.headers().get("Idempotency-Key"));
+    }
+
+    @Test void tradingDepositRequiresIdempotencyKey() {
+        Fake f = new Fake(n -> json(200, "{}"));
+        assertThrows(IllegalArgumentException.class, () -> client(f).trading.deposit(Map.of("amount_minor", "100"), ""));
+        assertEquals(0, f.calls.size());
+    }
+
     @Test void rejectsFloatAmounts() {
         Fake f = new Fake(n -> json(200, "{}"));
         assertThrows(IllegalArgumentException.class, () -> client(f).pix.payouts.fee(Map.of("amount_minor", 10.5)));
