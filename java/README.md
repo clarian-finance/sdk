@@ -14,7 +14,7 @@ gradle publishToMavenLocal
 ```kotlin
 // build.gradle.kts
 repositories { mavenLocal() }
-dependencies { implementation("finance.clarian:clarian-sdk:0.5.0") }
+dependencies { implementation("finance.clarian:clarian-sdk:0.6.0") }
 ```
 
 ## Quick start

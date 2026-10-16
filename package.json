@@ -1,6 +1,6 @@
 {
   "name": "@clarian-finance/sdk",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Official TypeScript SDK for the Clarian API v2: PIX, conversions, wallets, webhooks (server-side only: API keys are secret)",
   "type": "module",
   "main": "./dist/index.cjs",
