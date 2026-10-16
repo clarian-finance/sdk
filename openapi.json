@@ -73,6 +73,10 @@
     },
     {
       "name": "Notifications"
+    },
+    {
+      "name": "Trading",
+      "description": "BRL and stablecoins in the pooled exchange account: send BRL in, convert, withdraw coins to your wallet."
     }
   ],
   "paths": {
@@ -2300,6 +2304,16 @@
               }
             }
           },
+          "402": {
+            "description": "insufficient_trading_balance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "409": {
             "description": "quote_not_open",
             "content": {
@@ -2330,7 +2344,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Spends the base currency from the `trading` balance and settles the bought currency into `trading`. Send BRL there first with `POST /trading/deposits`; move coins to your wallet with `POST /trading/crypto-withdrawals`."
       }
     },
     "/v1/{env}/prices": {
@@ -7347,6 +7362,378 @@
           }
         }
       }
+    },
+    "/v1/{env}/trading/summary": {
+      "get": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "Trading balance",
+        "description": "BRL in the trading balance (the pooled exchange account) and how much of it can be withdrawn now. Coins bought by a conversion also sit in `trading`; see `GET /balances` (kind `trading`).",
+        "operationId": "getTradingSummary",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/TradingSummary"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/trading/deposits": {
+      "post": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "Send BRL to trading",
+        "description": "Moves BRL from `available` to `trading` with a PIX to the exchange account. The destination is fixed by the platform; any `pix_key` sent is ignored. Conversions (`/rfq/execute`) spend BRL from `trading`, so send it here first. Live money-out needs the party KYC approved.",
+        "operationId": "createTradingDeposit",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKeyRequired"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "amount_minor"
+                ],
+                "properties": {
+                  "amount_minor": {
+                    "type": "string",
+                    "pattern": "^[0-9]+$",
+                    "description": "Integer minor units."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Payment"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "insufficient_funds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "kyc_not_approved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "account_temporarily_locked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "trading_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/trading/withdrawals": {
+      "post": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "Withdraw BRL from trading",
+        "description": "Moves BRL from `trading` back to `available` (exchange account → your account). Minimum R$ 10,00. Capped by `withdrawable_minor`; five refused attempts in 24 h lock trading money-out temporarily.",
+        "operationId": "createTradingWithdrawal",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKeyRequired"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "amount_minor"
+                ],
+                "properties": {
+                  "amount_minor": {
+                    "type": "string",
+                    "pattern": "^[0-9]+$",
+                    "description": "Integer minor units."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Payment"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "kyc_not_approved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "trading_under_review | idempotency_key_reuse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "below_minimum | exceeds_withdrawable | invalid_amount",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "account_temporarily_locked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "trading_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/trading/crypto-withdrawals": {
+      "post": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "Withdraw stablecoins from trading to your wallet",
+        "description": "Moves USDT/USDC bought by a conversion from `trading` to the party's own wallet on `network`, where it becomes `available`. No fee. Minimum 5.00 gross (7.8 on Tron). The party needs a wallet on that network.",
+        "operationId": "createTradingCryptoWithdrawal",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKeyRequired"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "amount_minor"
+                ],
+                "properties": {
+                  "amount_minor": {
+                    "type": "string",
+                    "pattern": "^[0-9]+$",
+                    "description": "Gross amount in the coin's minor units (scale 6)."
+                  },
+                  "currency": {
+                    "type": "string",
+                    "enum": [
+                      "USDT",
+                      "USDC"
+                    ],
+                    "default": "USDT"
+                  },
+                  "network": {
+                    "type": "string",
+                    "default": "polygon",
+                    "description": "e.g. polygon, ethereum, tron."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Payment"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "insufficient_trading_balance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "idempotency_key_reuse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "network_not_supported | amount_below_minimum | wallet_required | wallet_network_mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "account_temporarily_locked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "trading_withdrawal_failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "trading_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "webhooks": {
@@ -9773,6 +10160,49 @@
                 "type": "string"
               }
             }
+          }
+        }
+      },
+      "TradingSummary": {
+        "type": "object",
+        "required": [
+          "currency",
+          "scale",
+          "trading_minor",
+          "withdrawable_minor",
+          "under_review",
+          "locked_until"
+        ],
+        "properties": {
+          "currency": {
+            "type": "string",
+            "enum": [
+              "BRL"
+            ]
+          },
+          "scale": {
+            "type": "integer"
+          },
+          "trading_minor": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Integer minor units."
+          },
+          "withdrawable_minor": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "BRL that can leave trading now; 0 while under review."
+          },
+          "under_review": {
+            "type": "boolean",
+            "description": "Ledger and provider proofs disagree: trading withdrawals are frozen."
+          },
+          "locked_until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         }
       }

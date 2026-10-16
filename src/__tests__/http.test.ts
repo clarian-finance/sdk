@@ -42,6 +42,22 @@ describe("request", () => {
     expect((r.calls[0].init.headers as Record<string, string>)["Idempotency-Key"]).toBe("k-1");
   });
 
+  it("withdraws trading coins to the wallet with the idempotency key", async () => {
+    const r = recorder([json(201, { data: { id: "p2" } })]);
+    const c = new Clarian({ apiKey: KEY, workspaceId: WS, fetch: r.fetch });
+    await c.trading.cryptoWithdraw({ amount_minor: "5000000", currency: "USDC", network: "polygon" }, "k-2");
+    expect(r.calls[0].url).toBe("https://api.clarian.finance/v1/test/trading/crypto-withdrawals");
+    expect(r.calls[0].init.method).toBe("POST");
+    expect((r.calls[0].init.headers as Record<string, string>)["Idempotency-Key"]).toBe("k-2");
+  });
+
+  it("refuses a trading deposit without an idempotency key", async () => {
+    const r = recorder([]);
+    const c = new Clarian({ apiKey: KEY, workspaceId: WS, fetch: r.fetch });
+    await expect(c.trading.deposit({ amount_minor: "100" }, "")).rejects.toThrow("idempotencyKey is required");
+    expect(r.calls).toHaveLength(0);
+  });
+
   it("throws ClarianError with the API code", async () => {
     const r = recorder([json(403, { error: "settlement_key_required" })]);
     const c = new Clarian({ apiKey: KEY, workspaceId: WS, fetch: r.fetch });
