@@ -7,7 +7,7 @@ SDK TypeScript da API v2 da Clarian: PIX de entrada e saída, cotação e conver
 ## Instalação
 
 ```bash
-npm install github:clarian-finance/sdk#v0.5.0
+npm install github:clarian-finance/sdk#v0.6.0
 ```
 
 ## Começo rápido

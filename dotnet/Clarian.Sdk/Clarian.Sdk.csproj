@@ -8,7 +8,7 @@
     <RootNamespace>Clarian</RootNamespace>
     <AssemblyName>Clarian.Sdk</AssemblyName>
     <PackageId>Clarian.Sdk</PackageId>
-    <Version>0.5.0</Version>
+    <Version>0.6.0</Version>
     <Authors>Clarian Finance</Authors>
     <Description>.NET SDK for the Clarian API v2. Zero runtime dependencies.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
