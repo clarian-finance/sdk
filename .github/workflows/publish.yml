@@ -3,6 +3,7 @@ name: Publish to GitHub Packages
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -26,3 +27,5 @@ jobs:
       - run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The repo .npmrc reads GITHUB_TOKEN; without it the token is empty (E401).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
