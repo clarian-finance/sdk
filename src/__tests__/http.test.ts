@@ -44,6 +44,16 @@ describe("request", () => {
     expect(r.calls[1].init.method).toBe("PUT");
   });
 
+  it("reads a sub-account markup and refuses a transfer without a key", async () => {
+    const r = recorder([json(200, { data: { pix_in_rate_bps: 0 } })]);
+    const c = new Clarian({ apiKey: KEY, workspaceId: WS, fetch: r.fetch });
+    await c.subaccounts.fees("sub-1");
+    expect(r.calls[0].url).toBe("https://api.clarian.finance/v1/test/subaccounts/sub-1/fees");
+    expect(r.calls[0].init.method).toBe("GET");
+    await expect(c.subaccounts.transfer("sub-1", { direction: "to_parent", amount_minor: "1" }, "")).rejects.toThrow();
+    expect(r.calls.length).toBe(1);
+  });
+
   it("targets /v1/live for a live key", async () => {
     const r = recorder([json(200, { data: {} })]);
     await new Clarian({ apiKey: "cl_live_sk_x", workspaceId: WS, fetch: r.fetch }).ping();

@@ -176,7 +176,7 @@ Actions that need a person's own second factor stay in the dashboard: inviting o
 | `webhooks` | `list`, `create`, `retrieve`, `update`, `delete`, `test`, `deliveries`, `resend` |
 | `payment_links` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replace_splits`, `charge` |
 | `checkout` | `retrieve`, `pay` |
-| `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions` |
+| `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions`, `transfer`, `fees`, `update_fees` |
 | `whitelist`, `bank_accounts`, `api_keys`, `settings`, `notifications`, `team`, `approvals` | read |
 | `workflows`, `treasury` | `list`, `create` (+ `workflows.runs`) |
 

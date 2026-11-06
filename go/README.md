@@ -188,7 +188,7 @@ Actions that need a person's own second factor stay in the dashboard: inviting o
 | `Webhooks` | `List`, `Create`, `Retrieve`, `Update`, `Delete`, `Test`, `Deliveries`, `Resend` |
 | `PaymentLinks` | `List`, `Create`, `Retrieve`, `Update`, `Delete`, `Payments`, `Stats`, `Splits`, `ReplaceSplits`, `Charge` |
 | `Checkout` | `Retrieve`, `Pay` |
-| `Subaccounts` | `List`, `Create`, `Retrieve`, `Balances`, `Transactions` |
+| `Subaccounts` | `List`, `Create`, `Retrieve`, `Balances`, `Transactions`, `Transfer`, `Fees`, `UpdateFees` |
 | `Whitelist`, `BankAccounts`, `APIKeys`, `Settings`, `Notifications`, `Team`, `Approvals` | read |
 | `Workflows`, `Treasury` | `List`, `Create` (+ `Workflows.Runs`) |
 

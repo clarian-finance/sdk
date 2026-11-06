@@ -324,7 +324,7 @@ export class SubAccounts {
     return request<S.SubAccountFees>(this.c, "GET", `subaccounts/${seg(id)}/fees`);
   }
   /** Your markup on top of Clarian's fee; omitted keys keep their value. */
-  updateFees(id: string, body: S.SubAccountFees) {
+  updateFees(id: string, body: Omit<S.SubAccountFees, "updated_at">) {
     return request<S.SubAccountFees>(this.c, "PUT", `subaccounts/${seg(id)}/fees`, { body });
   }
 }

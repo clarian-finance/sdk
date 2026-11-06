@@ -154,6 +154,14 @@ if (sub?.id) {
   await step("subaccounts.balances", () => clarian.subaccounts.balances(sub.id!));
   await step("subaccounts.transactions", () => clarian.subaccounts.transactions(sub.id!), "Payment");
   await step("forSubaccount().balances", () => clarian.forSubaccount(sub.id!).balances.list());
+  await step("subaccounts.fees", () => clarian.subaccounts.fees(sub.id!), "SubAccountFees");
+  await step("subaccounts.updateFees", () => clarian.subaccounts.updateFees(sub.id!, { pix_in_rate_bps: 50 }), "SubAccountFees");
+  // An unfunded sandbox holder answers 422 insufficient_balance, which still proves the route and key.
+  await step("subaccounts.transfer", () =>
+    clarian.subaccounts.transfer(sub.id!, { direction: "to_subaccount", amount_minor: "1" }, `e2e-${Date.now()}`).catch((e: { code?: string }) => {
+      if (e?.code === "insufficient_balance") return null;
+      throw e;
+    }));
 }
 
 // Workspace admin reads

@@ -198,7 +198,7 @@ Every method is `async` and ends in `Async`.
 | `Webhooks` | `List`, `Create`, `Retrieve`, `Update`, `Delete`, `Test`, `Deliveries`, `Resend` |
 | `PaymentLinks` | `List`, `Create`, `Retrieve`, `Update`, `Delete`, `Payments`, `Stats`, `Splits`, `ReplaceSplits`, `Charge` |
 | `Checkout` | `Retrieve`, `Pay` |
-| `Subaccounts` | `List`, `Create`, `Retrieve`, `Balances`, `Transactions` |
+| `Subaccounts` | `List`, `Create`, `Retrieve`, `Balances`, `Transactions`, `TransferAsync`, `FeesAsync`, `UpdateFeesAsync` |
 | `Whitelist`, `BankAccounts`, `ApiKeys`, `Settings`, `Notifications`, `Team`, `Approvals` | read |
 | `Workflows`, `Treasury` | `List`, `Create` (+ `Workflows.Runs`) |
 

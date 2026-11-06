@@ -93,6 +93,9 @@ await clarian.kyc.create({ party_id: customer.id! });
 const sub = await clarian.subaccounts.create({ display_name: "Store 12" });
 const store = clarian.forSubaccount(sub.id!); // every call acts on that sub-account
 await store.pix.payins.create({ amount_minor: "1000" }, "store12-order-1");
+// Same holder, same bank account: move BRL and set your markup on top of Clarian's fee.
+await clarian.subaccounts.transfer(sub.id!, { direction: "to_subaccount", amount_minor: "5000" }, "fund-store12-1");
+await clarian.subaccounts.updateFees(sub.id!, { pix_in_rate_bps: 50 });
 ```
 
 ## Payment links
@@ -172,7 +175,7 @@ Actions that need a person's own second factor stay in the dashboard: inviting o
 | `webhooks` | `list`, `create`, `retrieve`, `update`, `delete`, `test`, `deliveries`, `resend` |
 | `paymentLinks` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replaceSplits`, `charge` |
 | `checkout` | `retrieve`, `pay` |
-| `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions` |
+| `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions`, `transfer`, `fees`, `updateFees` |
 | `whitelist`, `bankAccounts`, `apiKeys`, `settings`, `notifications`, `team`, `approvals` | read |
 | `workflows`, `treasury` | `list`, `create` (+ `workflows.runs`) |
 
