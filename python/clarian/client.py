@@ -427,6 +427,17 @@ class SubAccounts(_Resource):
     def transactions(self, id: str, *, limit: Optional[int] = None):
         return self._h.request("GET", f"subaccounts/{_seg(id)}/transactions", query={"limit": limit})
 
+    def transfer(self, id: str, body: Body, idempotency_key: str):
+        """Moves BRL between you and the sub-account; never more than the source's available balance."""
+        key = _require_key(idempotency_key)
+        return self._h.request("POST", f"subaccounts/{_seg(id)}/transfers", body=body, idempotency_key=key)
+
+    def fees(self, id: str):
+        return self._h.request("GET", f"subaccounts/{_seg(id)}/fees")
+
+    def update_fees(self, id: str, body: Body):
+        return self._h.request("PUT", f"subaccounts/{_seg(id)}/fees", body=body)
+
 
 class ApiKeys(_Resource):
     def list(self):

@@ -28,6 +28,22 @@ describe("request", () => {
     expect(h["X-Workspace-Id"]).toBe(WS);
   });
 
+  it("moves BRL to a sub-account with the idempotency key and sets its markup", async () => {
+    const r = recorder([
+      json(201, { data: { journal_id: "j1", direction: "to_subaccount", amount_minor: "3000", currency: "BRL" } }),
+      json(200, { data: { pix_in_rate_bps: 100 } }),
+    ]);
+    const c = new Clarian({ apiKey: KEY, workspaceId: WS, fetch: r.fetch });
+    const t = await c.subaccounts.transfer("sub-1", { direction: "to_subaccount", amount_minor: "3000" }, "k-2");
+    expect(t.journal_id).toBe("j1");
+    expect(r.calls[0].url).toBe("https://api.clarian.finance/v1/test/subaccounts/sub-1/transfers");
+    expect(r.calls[0].init.method).toBe("POST");
+    expect((r.calls[0].init.headers as Record<string, string>)["Idempotency-Key"]).toBe("k-2");
+    await c.subaccounts.updateFees("sub-1", { pix_in_rate_bps: 100 });
+    expect(r.calls[1].url).toBe("https://api.clarian.finance/v1/test/subaccounts/sub-1/fees");
+    expect(r.calls[1].init.method).toBe("PUT");
+  });
+
   it("targets /v1/live for a live key", async () => {
     const r = recorder([json(200, { data: {} })]);
     await new Clarian({ apiKey: "cl_live_sk_x", workspaceId: WS, fetch: r.fetch }).ping();

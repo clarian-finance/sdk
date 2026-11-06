@@ -314,6 +314,19 @@ export class SubAccounts {
   transactions(id: string, params: { limit?: number } = {}) {
     return request<S.Payment[]>(this.c, "GET", `subaccounts/${seg(id)}/transactions`, { query: params });
   }
+  /** Moves BRL between you and the sub-account. Never more than the source's available balance. */
+  transfer(id: string, body: S.SubAccountTransferRequest, idempotencyKey: string) {
+    return withKey(idempotencyKey, (k) =>
+      request<S.SubAccountTransfer>(this.c, "POST", `subaccounts/${seg(id)}/transfers`, { body, idempotencyKey: k }),
+    );
+  }
+  fees(id: string) {
+    return request<S.SubAccountFees>(this.c, "GET", `subaccounts/${seg(id)}/fees`);
+  }
+  /** Your markup on top of Clarian's fee; omitted keys keep their value. */
+  updateFees(id: string, body: S.SubAccountFees) {
+    return request<S.SubAccountFees>(this.c, "PUT", `subaccounts/${seg(id)}/fees`, { body });
+  }
 }
 
 export class ApiKeys {

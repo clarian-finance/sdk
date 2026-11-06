@@ -285,6 +285,19 @@ func (r *Subaccounts) Transactions(ctx context.Context, id string, p Params) ([]
 	return get[[]Row](ctx, r.c, "subaccounts/"+seg(id)+"/transactions", p)
 }
 
+// Transfer moves BRL between you and the sub-account; never more than the source's available balance.
+func (r *Subaccounts) Transfer(ctx context.Context, id string, body Row, idempotencyKey string) (Row, error) {
+	return postKeyed[Row](ctx, r.c, "subaccounts/"+seg(id)+"/transfers", body, idempotencyKey)
+}
+func (r *Subaccounts) Fees(ctx context.Context, id string) (Row, error) {
+	return get[Row](ctx, r.c, "subaccounts/"+seg(id)+"/fees", nil)
+}
+
+// UpdateFees sets your markup on top of Clarian's fee; omitted keys keep their value.
+func (r *Subaccounts) UpdateFees(ctx context.Context, id string, body Row) (Row, error) {
+	return call[Row](ctx, r.c, http.MethodPut, "subaccounts/"+seg(id)+"/fees", reqOpts{body: body})
+}
+
 type APIKeys struct{ c *Client }
 
 func (r *APIKeys) List(ctx context.Context) ([]Row, error) {

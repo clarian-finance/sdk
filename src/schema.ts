@@ -196,6 +196,8 @@ export interface WebhookDelivery {
   readonly created_at?: string;
   readonly delivered_at?: string | null;
   readonly next_attempt_at?: string | null;
+  /** Milliseconds the last attempt took; null while pending. */
+  readonly last_latency_ms?: number | null;
 }
 
 export interface PaymentLink {
@@ -215,6 +217,10 @@ export interface PaymentLink {
   readonly created_at?: string;
   readonly title?: string | null;
   readonly metadata?: Readonly<Record<string, unknown>>;
+  /** Assigned by the database at creation; unique and increasing per workspace and environment, with possible gaps. */
+  readonly order_number?: string;
+  /** List only: how many catalog products the checkout sells. 0 for a plain payment link. */
+  readonly product_count?: number;
 }
 
 export interface PaymentLinkSplit {
@@ -256,6 +262,8 @@ export interface ApiKey {
   readonly expires_at?: string | null;
   readonly created_at?: string;
   readonly prefix?: string;
+  /** Last four characters of the secret, for display. Null for keys created before it was recorded. */
+  readonly last4?: string | null;
   readonly scope?: string;
   readonly production_enabled?: boolean;
   readonly last_used_at?: string | null;
@@ -697,4 +705,27 @@ export interface TradingSummary {
   /** Ledger and provider proofs disagree: trading withdrawals are frozen. */
   readonly under_review: boolean;
   readonly locked_until: string | null;
+}
+
+export interface SubAccountTransferRequest {
+  /** `to_subaccount` moves BRL from the holder to the sub-account; `to_parent` moves it back. */
+  readonly direction: "to_subaccount" | "to_parent";
+  /** BRL in centavos. Must not exceed the source's available balance. */
+  readonly amount_minor: string | bigint;
+}
+
+export interface SubAccountTransfer {
+  readonly journal_id: string;
+  readonly direction: "to_subaccount" | "to_parent";
+  readonly amount_minor: string;
+  readonly currency: "BRL";
+}
+
+/** Your markup on each sub-account, charged on top of Clarian's fee and credited to your balance. A rate is basis points (0-10000), a flat value centavos. */
+export interface SubAccountFees {
+  readonly pix_in_rate_bps?: number;
+  readonly pix_in_flat_minor?: string;
+  readonly pix_out_rate_bps?: number;
+  readonly pix_out_flat_minor?: string;
+  readonly updated_at?: string;
 }

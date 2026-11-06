@@ -233,6 +233,13 @@ final class SubAccounts extends Resource
     public function retrieve(string $id): array { return $this->h->request('GET', 'subaccounts/' . self::seg($id)); }
     public function balances(string $id): array { return $this->h->request('GET', 'subaccounts/' . self::seg($id) . '/balances'); }
     public function transactions(string $id, array $params = []): array { return $this->h->request('GET', 'subaccounts/' . self::seg($id) . '/transactions', $params); }
+    /** Moves BRL between you and the sub-account; never more than the source's available balance. */
+    public function transfer(string $id, array $body, string $idempotencyKey): array
+    {
+        return $this->h->request('POST', 'subaccounts/' . self::seg($id) . '/transfers', body: $body, idempotencyKey: self::requireKey($idempotencyKey));
+    }
+    public function fees(string $id): array { return $this->h->request('GET', 'subaccounts/' . self::seg($id) . '/fees'); }
+    public function updateFees(string $id, array $body): array { return $this->h->request('PUT', 'subaccounts/' . self::seg($id) . '/fees', body: $body); }
 }
 
 final class ApiKeys extends Resource

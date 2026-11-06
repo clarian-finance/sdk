@@ -421,6 +421,10 @@ public final class ClarianClient {
         public Map<String, Object> retrieve(String id) { return get("subaccounts/" + seg(id)); }
         public List<Map<String, Object>> balances(String id) { return getList("subaccounts/" + seg(id) + "/balances"); }
         public List<Map<String, Object>> transactions(String id, Integer limit) { return getList("subaccounts/" + seg(id) + "/transactions", limit(limit)); }
+        /** Moves BRL between you and the sub-account; never more than the source's available balance. */
+        public Map<String, Object> transfer(String id, Map<String, ?> body, String idempotencyKey) { return money("subaccounts/" + seg(id) + "/transfers", body, idempotencyKey); }
+        public Map<String, Object> fees(String id) { return get("subaccounts/" + seg(id) + "/fees"); }
+        public Map<String, Object> updateFees(String id, Map<String, ?> body) { return send("PUT", "subaccounts/" + seg(id) + "/fees", body); }
     }
 
     public final class ApiKeys {

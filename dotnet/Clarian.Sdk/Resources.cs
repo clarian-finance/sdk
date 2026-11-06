@@ -214,6 +214,12 @@ public sealed class SubAccounts : Resource
     public Task<JsonElement> BalancesAsync(string id, CancellationToken ct = default) => Get($"subaccounts/{Seg(id)}/balances", ct: ct);
     public Task<JsonElement> TransactionsAsync(string id, int? limit = null, CancellationToken ct = default) =>
         Get($"subaccounts/{Seg(id)}/transactions", Q(("limit", limit)), ct);
+    /// <summary>Moves BRL between you and the sub-account; never more than the source's available balance.</summary>
+    public Task<JsonElement> TransferAsync(string id, object body, string idempotencyKey, CancellationToken ct = default) =>
+        Send(HttpMethod.Post, $"subaccounts/{Seg(id)}/transfers", body, RequireKey(idempotencyKey), ct);
+    public Task<JsonElement> FeesAsync(string id, CancellationToken ct = default) => Get($"subaccounts/{Seg(id)}/fees", ct: ct);
+    public Task<JsonElement> UpdateFeesAsync(string id, object body, CancellationToken ct = default) =>
+        Send(HttpMethod.Put, $"subaccounts/{Seg(id)}/fees", body, ct: ct);
 }
 
 public sealed class ApiKeys : Resource

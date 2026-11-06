@@ -188,6 +188,14 @@ module Clarian
     def retrieve(id) = get("subaccounts/#{seg(id)}")
     def balances(id) = get("subaccounts/#{seg(id)}/balances")
     def transactions(id, params = {}) = get("subaccounts/#{seg(id)}/transactions", params)
+
+    # Moves BRL between you and the sub-account; never more than the source's available balance.
+    def transfer(id, body, idempotency_key)
+      with_key(idempotency_key) { |k| post("subaccounts/#{seg(id)}/transfers", body, idempotency_key: k) }
+    end
+
+    def fees(id) = get("subaccounts/#{seg(id)}/fees")
+    def update_fees(id, body) = put("subaccounts/#{seg(id)}/fees", body)
   end
 
   class ApiKeys < Resource
