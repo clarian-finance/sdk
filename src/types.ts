@@ -39,6 +39,30 @@ export interface StatementParams extends ListParams {
   readonly kind?: string;
 }
 
+export interface HistoryParams {
+  /** Days back from today. */
+  readonly days?: number;
+  readonly currency?: string;
+}
+
+export interface DailyVolumeParams {
+  readonly days?: number;
+  readonly source?: string;
+}
+
+export interface PriceHistoryParams {
+  readonly base: string;
+  readonly quote: string;
+  readonly days?: number;
+}
+
+export interface StatementPdfParams {
+  /** `YYYY-MM-DD`. */
+  readonly from: string;
+  readonly to: string;
+  readonly currency?: string;
+}
+
 export interface CheckoutListParams {
   readonly limit?: number;
   readonly cursor?: string;

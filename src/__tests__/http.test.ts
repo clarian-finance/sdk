@@ -17,6 +17,31 @@ const recorder = (replies: Response[]) => {
 };
 
 describe("request", () => {
+  it("reads the history routes with their query and returns the statement PDF as bytes", async () => {
+    const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+    const r = recorder([
+      json(200, { data: [{ day: "2026-11-01", balance_minor: "100" }] }),
+      new Response(pdf, { status: 200, headers: { "content-type": "application/pdf" } }),
+      json(404, { error: "statement_empty" }),
+      json(200, { data: { items: [] } }),
+    ]);
+    const c = new Clarian({ apiKey: KEY, workspaceId: WS, fetch: r.fetch });
+    const days = await c.balances.history({ days: 7, currency: "BRL" });
+    expect(days[0].balance_minor).toBe("100");
+    expect(r.calls[0].url).toBe("https://api.clarian.finance/v1/test/balances/history?days=7&currency=BRL");
+    const bytes = await c.transactions.statementPdf({ from: "2026-11-01", to: "2026-11-07" });
+    expect([...bytes]).toEqual([0x25, 0x50, 0x44, 0x46]);
+    expect(r.calls[1].url).toBe("https://api.clarian.finance/v1/test/statement/pdf?from=2026-11-01&to=2026-11-07");
+    await expect(c.transactions.statementPdf({ from: "2026-11-01", to: "2026-11-07" })).rejects.toMatchObject({
+      status: 404,
+      code: "statement_empty",
+    });
+    await c.paymentLinks.replaceProducts("link-1", [{ product_id: "p1", quantity: 2 }]);
+    expect(r.calls[3].init.method).toBe("PUT");
+    expect(r.calls[3].url).toBe("https://api.clarian.finance/v1/test/payment-links/link-1/products");
+    expect(JSON.parse(String(r.calls[3].init.body))).toEqual({ items: [{ product_id: "p1", quantity: 2 }] });
+  });
+
   it("targets /v1/test for a sandbox key, sends auth headers and unwraps data", async () => {
     const r = recorder([json(200, { data: [{ currency: "BRL", kind: "available", balance_minor: "100", scale: 2 }] })]);
     const c = new Clarian({ apiKey: KEY, workspaceId: WS, fetch: r.fetch, baseUrl: "https://api.example.com/" });
