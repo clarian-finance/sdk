@@ -279,3 +279,59 @@ func TestTradingCryptoWithdraw(t *testing.T) {
 		t.Fatalf("got %s %s key=%q", got.Method, got.URL.Path, got.Header.Get("Idempotency-Key"))
 	}
 }
+
+func TestHistoryRoutesAndStatementPDFBytes(t *testing.T) {
+	var calls []*http.Request
+	pdfCalls := 0
+	var bodies []string
+	c, _ := server(t, func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r)
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(b))
+		switch r.URL.Path {
+		case "/v1/test/balances/history":
+			w.Write([]byte(`{"data":[{"day":"2026-11-01","balance_minor":"100"}]}`))
+		case "/v1/test/statement/pdf":
+			pdfCalls++
+			if pdfCalls == 1 {
+				w.Header().Set("Content-Type", "application/pdf")
+				w.Write([]byte{0x25, 0x50, 0x44, 0x46})
+			} else {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"error":"statement_empty"}`))
+			}
+		case "/v1/test/payment-links/link-1/products":
+			w.Write([]byte(`{"data":{"items":[]}}`))
+		}
+	})
+	ctx := context.Background()
+	days, err := c.Balances.History(ctx, Params{"days": "7", "currency": "BRL"})
+	if err != nil || days[0]["balance_minor"] != "100" {
+		t.Fatalf("history: %v %v", days, err)
+	}
+	if got := calls[0].URL.RawQuery; got != "currency=BRL&days=7" {
+		t.Fatalf("history query %q", got)
+	}
+	pdf, err := c.Transactions.StatementPDF(ctx, Params{"from": "2026-11-01", "to": "2026-11-07"})
+	if err != nil || string(pdf) != "%PDF" {
+		t.Fatalf("pdf: %q %v", pdf, err)
+	}
+	if calls[1].URL.Path != "/v1/test/statement/pdf" || calls[1].URL.RawQuery != "from=2026-11-01&to=2026-11-07" {
+		t.Fatalf("pdf url %s?%s", calls[1].URL.Path, calls[1].URL.RawQuery)
+	}
+	_, err = c.Transactions.StatementPDF(ctx, Params{"from": "2026-11-01", "to": "2026-11-07"})
+	var apiErr *Error
+	if !errors.As(err, &apiErr) || apiErr.Status != 404 || apiErr.Code != "statement_empty" {
+		t.Fatalf("404 not mapped: %v", err)
+	}
+	if _, err := c.PaymentLinks.ReplaceProducts(ctx, "link-1", []Row{{"product_id": "p1", "quantity": 2}}); err != nil {
+		t.Fatal(err)
+	}
+	last := calls[len(calls)-1]
+	if last.Method != "PUT" || last.URL.Path != "/v1/test/payment-links/link-1/products" {
+		t.Fatalf("replace %s %s", last.Method, last.URL.Path)
+	}
+	if bodies[len(bodies)-1] != `{"items":[{"product_id":"p1","quantity":2}]}` {
+		t.Fatalf("replace body %s", bodies[len(bodies)-1])
+	}
+}

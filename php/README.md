@@ -165,21 +165,22 @@ Actions that need a person's own second factor stay in the dashboard: inviting o
 
 | Area | Methods |
 |---|---|
-| `balances` | `list` |
+| `balances` | `list`, `history` |
 | `pix->payins` | `create`, `retrieve`, `simulate` |
 | `pix->payouts` | `create`, `retrieve`, `fee`, `lookup`, `simulate`, `listAccounts` |
-| `conversions` | `quote`, `execute`, `prices` |
+| `conversions` | `quote`, `execute`, `prices`, `priceHistory` |
 | `wallets` | `list`, `create`, `retrieve`, `balance`, `transactions` |
 | `crypto` | `send`, `simulate`, `networks` |
 | `trading` | `summary`, `deposit`, `withdraw`, `cryptoWithdraw` |
-| `transactions` | `list`, `retrieve`, `statement` |
+| `transactions` | `list`, `retrieve`, `statement`, `statementPdf` (raw PDF bytes), `daily` |
 | `customers` | `list`, `create`, `retrieve`, `update` |
 | `kyc` | `list`, `create`, `retrieve`, `listRfi`, `answerRfi` |
 | `webhooks` | `list`, `create`, `retrieve`, `update`, `delete`, `test`, `deliveries`, `resend` |
-| `paymentLinks` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replaceSplits`, `charge` |
+| `paymentLinks` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replaceSplits`, `products`, `replaceProducts`, `charge` |
 | `checkout` | `retrieve`, `pay` |
 | `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions`, `transfer`, `fees`, `updateFees` |
-| `whitelist`, `bankAccounts`, `apiKeys`, `settings`, `notifications`, `team`, `approvals` | read |
+| `apiKeys` | `usage` (+ `list`, `audit`) |
+| `whitelist`, `bankAccounts`, `settings`, `notifications`, `team`, `approvals` | read |
 | `workflows`, `treasury` | `list`, `create` (+ `workflows->runs`) |
 
 Field names follow the OpenAPI reference (`../openapi.json`, also at `https://app.clarian.finance/openapi.json`).

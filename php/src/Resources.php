@@ -37,6 +37,8 @@ abstract class Resource
 final class Balances extends Resource
 {
     public function list(): array { return $this->h->request('GET', 'balances'); }
+    /** End-of-day balance per day. @param array{days?: int, currency?: string} $params */
+    public function history(array $params = []): array { return $this->h->request('GET', 'balances/history', $params); }
 }
 
 final class Wallets extends Resource
@@ -56,6 +58,10 @@ final class Transactions extends Resource
     public function retrieve(string $id): array { return $this->h->request('GET', 'transactions/' . self::seg($id)); }
     /** @param array{limit?: int, before?: string, from?: string, to?: string, currency?: string, kind?: string} $params */
     public function statement(array $params = []): array { return $this->h->request('GET', 'statement', $params); }
+    /** The statement for a date range as raw PDF bytes. @param array{from: string, to: string, currency?: string} $params */
+    public function statementPdf(array $params): string { return $this->h->requestBytes('statement/pdf', $params); }
+    /** Volume in and out per day. @param array{days?: int, source?: string} $params */
+    public function daily(array $params = []): array { return $this->h->request('GET', 'transactions/daily', $params); }
 }
 
 /** PIX cash-in: a charge the payer pays with a QR code / copia-e-cola. */
@@ -119,6 +125,8 @@ final class Conversions extends Resource
     {
         return $this->h->request('GET', 'prices', $symbols === null ? [] : ['symbols' => implode(',', $symbols)]);
     }
+    /** Rates you were quoted, per day. @param array{base: string, quote: string, days?: int} $params */
+    public function priceHistory(array $params): array { return $this->h->request('GET', 'prices/history', $params); }
 }
 
 final class Trading extends Resource
@@ -210,6 +218,9 @@ final class PaymentLinks extends Resource
     public function stats(array $params = []): array { return $this->h->request('GET', 'payment-links/stats', $params); }
     public function splits(string $id): array { return $this->h->request('GET', 'payment-links/' . self::seg($id) . '/splits'); }
     public function replaceSplits(string $id, array $body): array { return $this->h->request('PUT', 'payment-links/' . self::seg($id) . '/splits', body: $body); }
+    public function products(string $id): array { return $this->h->request('GET', 'payment-links/' . self::seg($id) . '/products'); }
+    /** Replaces the whole product list of a checkout. */
+    public function replaceProducts(string $id, array $items): array { return $this->h->request('PUT', 'payment-links/' . self::seg($id) . '/products', body: ['items' => $items]); }
     public function charge(string $id, array $body, string $idempotencyKey): array
     {
         return $this->h->request('POST', 'payment-links/' . self::seg($id) . '/charges', body: $body, idempotencyKey: self::requireKey($idempotencyKey));
@@ -246,6 +257,8 @@ final class ApiKeys extends Resource
 {
     public function list(): array { return $this->h->request('GET', 'api-keys'); }
     public function audit(array $params = []): array { return $this->h->request('GET', 'api-keys/audit', $params); }
+    /** @param array{days?: int} $params */
+    public function usage(array $params = []): array { return $this->h->request('GET', 'api-keys/usage', $params); }
 }
 
 final class Settings extends Resource

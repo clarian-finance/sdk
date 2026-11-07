@@ -94,6 +94,15 @@ def _require_key(idempotency_key: str) -> str:
     return idempotency_key
 
 
+def _json_object(raw: bytes) -> dict:
+    text = raw.decode("utf-8", "replace") if raw else ""
+    try:
+        parsed = json.loads(text) if text else {}
+    except ValueError:
+        parsed = {"error": "invalid_json_response", "message": text[:500]}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 class _Http:
     def __init__(self, api_key: str, workspace_id: str, base_url: Optional[str], timeout: float,
                  subaccount_id: Optional[str], max_retries: int, transport: Optional[Transport],
@@ -111,9 +120,9 @@ class _Http:
     def __repr__(self) -> str:
         return f"<clarian._Http {self.environment} workspace={self.workspace_id} api_key=****>"
 
-    def request(self, method: str, path: str, *, query: Optional[Mapping[str, Any]] = None, body: Any = None,
-                idempotency_key: Optional[str] = None, otp_code: Optional[str] = None) -> Any:
-        env = "live" if self.environment == "live" else "test"
+    def _send(self, method: str, path: str, *, query: Optional[Mapping[str, Any]] = None, body: Any = None,
+              idempotency_key: Optional[str] = None, otp_code: Optional[str] = None) -> Tuple[int, bytes]:
+        env ="live" if self.environment == "live" else "test"
         pairs = {k: v for k, v in (query or {}).items() if isinstance(v, (str, int)) and not isinstance(v, bool)}
         url = f"{self.base_url}/v1/{env}/{path}" + (f"?{urlencode(pairs)}" if pairs else "")
         headers = {"Authorization": f"Bearer {self.api_key}", "X-Workspace-Id": self.workspace_id,
@@ -146,15 +155,23 @@ class _Http:
                 attempt += 1
                 continue
             break
-        text = raw.decode("utf-8", "replace") if raw else ""
-        try:
-            parsed = json.loads(text) if text else {}
-        except ValueError:
-            parsed = {"error": "invalid_json_response", "message": text[:500]}
-        obj = parsed if isinstance(parsed, dict) else {}
+        return status, raw
+
+    def request(self, method: str, path: str, *, query: Optional[Mapping[str, Any]] = None, body: Any = None,
+                idempotency_key: Optional[str] = None, otp_code: Optional[str] = None) -> Any:
+        status, raw = self._send(method, path, query=query, body=body, idempotency_key=idempotency_key,
+                                 otp_code=otp_code)
+        obj = _json_object(raw)
         if not 200 <= status < 300:
             raise ClarianError(status, obj)
         return obj["data"] if "data" in obj else obj
+
+    def request_bytes(self, path: str, *, query: Optional[Mapping[str, Any]] = None) -> bytes:
+        """GET for a binary reply such as a PDF: returns the raw bytes. Errors are JSON and raise as usual."""
+        status, raw = self._send("GET", path, query=query)
+        if not 200 <= status < 300:
+            raise ClarianError(status, _json_object(raw))
+        return raw
 
 
 class _Resource:
@@ -165,6 +182,10 @@ class _Resource:
 class Balances(_Resource):
     def list(self):
         return self._h.request("GET", "balances")
+
+    def history(self, *, days: Optional[int] = None, currency: Optional[str] = None):
+        """End-of-day balance per day. ``days`` counts back from today."""
+        return self._h.request("GET", "balances/history", query={"days": days, "currency": currency})
 
 
 class Wallets(_Resource):
@@ -197,6 +218,14 @@ class Transactions(_Resource):
         if "from_" in params:
             params["from"] = params.pop("from_")
         return self._h.request("GET", "statement", query=params)
+
+    def statement_pdf(self, from_: str, to: str, *, currency: Optional[str] = None) -> bytes:
+        """The statement for a date range (``YYYY-MM-DD``) as PDF bytes, not JSON."""
+        return self._h.request_bytes("statement/pdf", query={"from": from_, "to": to, "currency": currency})
+
+    def daily(self, *, days: Optional[int] = None, source: Optional[str] = None):
+        """Volume in and out per day."""
+        return self._h.request("GET", "transactions/daily", query={"days": days, "source": source})
 
 
 class PixPayins(_Resource):
@@ -256,6 +285,10 @@ class Conversions(_Resource):
 
     def prices(self, symbols: Optional[Sequence[str]] = None):
         return self._h.request("GET", "prices", query={"symbols": ",".join(symbols) if symbols else None})
+
+    def price_history(self, base: str, quote: str, *, days: Optional[int] = None):
+        """Rates you were quoted, per day."""
+        return self._h.request("GET", "prices/history", query={"base": base, "quote": quote, "days": days})
 
 
 class Crypto(_Resource):
@@ -392,6 +425,13 @@ class PaymentLinks(_Resource):
     def splits(self, id: str):
         return self._h.request("GET", f"payment-links/{_seg(id)}/splits")
 
+    def products(self, id: str):
+        return self._h.request("GET", f"payment-links/{_seg(id)}/products")
+
+    def replace_products(self, id: str, items: Sequence[Body]):
+        """Replaces the whole product list of a checkout."""
+        return self._h.request("PUT", f"payment-links/{_seg(id)}/products", body={"items": list(items)})
+
     def replace_splits(self, id: str, body: Body):
         return self._h.request("PUT", f"payment-links/{_seg(id)}/splits", body=body)
 
@@ -445,6 +485,9 @@ class ApiKeys(_Resource):
 
     def audit(self, *, limit: Optional[int] = None):
         return self._h.request("GET", "api-keys/audit", query={"limit": limit})
+
+    def usage(self, *, days: Optional[int] = None):
+        return self._h.request("GET", "api-keys/usage", query={"days": days})
 
 
 class Settings(_Resource):

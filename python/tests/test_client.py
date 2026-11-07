@@ -21,7 +21,8 @@ class Fake:
         if isinstance(r, Exception):
             raise r
         status, payload, *hdrs = r
-        return status, (hdrs[0] if hdrs else {}), json.dumps(payload).encode()
+        raw = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+        return status, (hdrs[0] if hdrs else {}), raw
 
 
 def client(fake, **kw):
@@ -113,6 +114,44 @@ def test_float_amount_rejected():
     with pytest.raises(TypeError):
         client(fake).pix.payouts.fee({"amount_minor": 10.5})
     assert fake.calls == []
+
+
+def test_history_routes_and_statement_pdf_bytes():
+    pdf = b"%PDF"
+    fake = Fake(
+        (200, {"data": [{"day": "2026-11-01", "balance_minor": "100"}]}),
+        (200, pdf),
+        (404, {"error": "statement_empty"}),
+        (200, {"data": {"items": []}}),
+    )
+    c = client(fake)
+    days = c.balances.history(days=7, currency="BRL")
+    assert days[0]["balance_minor"] == "100"
+    assert fake.calls[0][1] == "https://api.clarian.finance/v1/test/balances/history?days=7&currency=BRL"
+    assert c.transactions.statement_pdf("2026-11-01", "2026-11-07") == pdf
+    assert fake.calls[1][1] == "https://api.clarian.finance/v1/test/statement/pdf?from=2026-11-01&to=2026-11-07"
+    with pytest.raises(ClarianError) as e:
+        c.transactions.statement_pdf("2026-11-01", "2026-11-07")
+    assert (e.value.status, e.value.code) == (404, "statement_empty")
+    c.payment_links.replace_products("link-1", [{"product_id": "p1", "quantity": 2}])
+    assert fake.calls[3][0] == "PUT"
+    assert fake.calls[3][1] == "https://api.clarian.finance/v1/test/payment-links/link-1/products"
+    assert fake.calls[3][3] == {"items": [{"product_id": "p1", "quantity": 2}]}
+
+
+def test_remaining_new_routes():
+    fake = Fake((200, {"data": []}))
+    c = client(fake)
+    c.transactions.daily(days=3, source="pix")
+    c.conversions.price_history("BRL", "USDT", days=30)
+    c.payment_links.products("link-1")
+    c.api_keys.usage(days=5)
+    assert [(m, u) for m, u, *_ in fake.calls] == [
+        ("GET", "https://api.clarian.finance/v1/test/transactions/daily?days=3&source=pix"),
+        ("GET", "https://api.clarian.finance/v1/test/prices/history?base=BRL&quote=USDT&days=30"),
+        ("GET", "https://api.clarian.finance/v1/test/payment-links/link-1/products"),
+        ("GET", "https://api.clarian.finance/v1/test/api-keys/usage?days=5"),
+    ]
 
 
 SECRET = "whsec_test"

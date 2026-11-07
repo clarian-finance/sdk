@@ -6,7 +6,7 @@ Ruby SDK for the Clarian API v2: PIX cash-in and cash-out, BRL/stablecoin quotes
 
 ```ruby
 # Gemfile
-gem "clarian", git: "https://github.com/clarian-finance/sdk", glob: "ruby/*.gemspec", tag: "v0.6.0"
+gem "clarian", git: "https://github.com/clarian-finance/sdk", glob: "ruby/*.gemspec", tag: "v0.7.0"
 ```
 
 ## Quick start
@@ -163,21 +163,22 @@ Actions that need a person's own second factor stay in the dashboard: inviting o
 
 | Area | Methods |
 |---|---|
-| `balances` | `list` |
+| `balances` | `list`, `history` |
 | `pix.payins` | `create`, `retrieve`, `simulate` |
 | `pix.payouts` | `create`, `retrieve`, `fee`, `lookup`, `simulate`, `list_accounts` |
-| `conversions` | `quote`, `execute`, `prices` |
+| `conversions` | `quote`, `execute`, `prices`, `price_history` |
 | `wallets` | `list`, `create`, `retrieve`, `balance`, `transactions` |
 | `trading` | `summary`, `deposit`, `withdraw`, `crypto_withdraw` |
 | `crypto` | `send`, `simulate`, `networks` |
-| `transactions` | `list`, `retrieve`, `statement` |
+| `transactions` | `list`, `retrieve`, `statement`, `statement_pdf` (bytes), `daily` |
 | `customers` | `list`, `create`, `retrieve`, `update` |
 | `kyc` | `list`, `create`, `retrieve`, `list_rfi`, `answer_rfi` |
 | `webhooks` | `list`, `create`, `retrieve`, `update`, `delete`, `test`, `deliveries`, `resend` |
-| `payment_links` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replace_splits`, `charge` |
+| `payment_links` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replace_splits`, `products`, `replace_products`, `charge` |
 | `checkout` | `retrieve`, `pay` |
 | `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions`, `transfer`, `fees`, `update_fees` |
-| `whitelist`, `bank_accounts`, `api_keys`, `settings`, `notifications`, `team`, `approvals` | read |
+| `whitelist`, `bank_accounts`, `settings`, `notifications`, `team`, `approvals` | read |
+| `api_keys` | `list`, `audit`, `usage` |
 | `workflows`, `treasury` | `list`, `create` (+ `workflows.runs`) |
 
 Request and response shapes are in the OpenAPI reference (`../openapi.json`, also at `https://app.clarian.finance/openapi.json`).

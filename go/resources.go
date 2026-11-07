@@ -14,6 +14,11 @@ func (r *Balances) List(ctx context.Context) ([]Row, error) {
 	return get[[]Row](ctx, r.c, "balances", nil)
 }
 
+// History is the end-of-day balance per day; params: days, currency.
+func (r *Balances) History(ctx context.Context, p Params) ([]Row, error) {
+	return get[[]Row](ctx, r.c, "balances/history", p)
+}
+
 type Wallets struct{ c *Client }
 
 func (r *Wallets) List(ctx context.Context) ([]Row, error) {
@@ -46,6 +51,16 @@ func (r *Transactions) Retrieve(ctx context.Context, id string) (Row, error) {
 }
 func (r *Transactions) Statement(ctx context.Context, p Params) ([]Row, error) {
 	return get[[]Row](ctx, r.c, "statement", p)
+}
+
+// StatementPDF returns the statement PDF bytes; params: from and to (YYYY-MM-DD), currency.
+func (r *Transactions) StatementPDF(ctx context.Context, p Params) ([]byte, error) {
+	return get[[]byte](ctx, r.c, "statement/pdf", p)
+}
+
+// Daily is the volume in and out per day; params: days, source.
+func (r *Transactions) Daily(ctx context.Context, p Params) ([]Row, error) {
+	return get[[]Row](ctx, r.c, "transactions/daily", p)
 }
 
 type Pix struct {
@@ -110,6 +125,11 @@ func (r *Conversions) Execute(ctx context.Context, quoteID string) (Row, error) 
 }
 func (r *Conversions) Prices(ctx context.Context, symbols ...string) (Row, error) {
 	return get[Row](ctx, r.c, "prices", Params{"symbols": strings.Join(symbols, ",")})
+}
+
+// PriceHistory gives the rates quoted per day; params: base, quote, days.
+func (r *Conversions) PriceHistory(ctx context.Context, p Params) ([]Row, error) {
+	return get[[]Row](ctx, r.c, "prices/history", p)
 }
 
 type Trading struct{ c *Client }
@@ -253,6 +273,14 @@ func (r *PaymentLinks) Splits(ctx context.Context, id string) ([]Row, error) {
 func (r *PaymentLinks) ReplaceSplits(ctx context.Context, id string, body Row) ([]Row, error) {
 	return call[[]Row](ctx, r.c, http.MethodPut, "payment-links/"+seg(id)+"/splits", reqOpts{body: body})
 }
+func (r *PaymentLinks) Products(ctx context.Context, id string) (Row, error) {
+	return get[Row](ctx, r.c, "payment-links/"+seg(id)+"/products", nil)
+}
+
+// ReplaceProducts replaces the whole product list of a checkout.
+func (r *PaymentLinks) ReplaceProducts(ctx context.Context, id string, items []Row) (Row, error) {
+	return call[Row](ctx, r.c, http.MethodPut, "payment-links/"+seg(id)+"/products", reqOpts{body: Row{"items": items}})
+}
 func (r *PaymentLinks) Charge(ctx context.Context, id string, body Row, idempotencyKey string) (Row, error) {
 	return postKeyed[Row](ctx, r.c, "payment-links/"+seg(id)+"/charges", body, idempotencyKey)
 }
@@ -305,6 +333,11 @@ func (r *APIKeys) List(ctx context.Context) ([]Row, error) {
 }
 func (r *APIKeys) Audit(ctx context.Context, p Params) ([]Row, error) {
 	return get[[]Row](ctx, r.c, "api-keys/audit", p)
+}
+
+// Usage is the per-key usage over the last days; params: days.
+func (r *APIKeys) Usage(ctx context.Context, p Params) (Row, error) {
+	return get[Row](ctx, r.c, "api-keys/usage", p)
 }
 
 type Settings struct{ c *Client }

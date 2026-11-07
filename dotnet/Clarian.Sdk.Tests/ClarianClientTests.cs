@@ -220,6 +220,58 @@ public class ClarianClientTests
         if (ok) make(); else Assert.Throws<ArgumentException>(make);
     }
 
+    private static HttpResponseMessage Pdf(byte[] bytes)
+    {
+        var r = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) };
+        r.Content.Headers.TryAddWithoutValidation("Content-Type", "application/pdf");
+        return r;
+    }
+
+    [Fact]
+    public async Task ReadsHistoryRoutesAndReturnsStatementPdfAsBytes()
+    {
+        var pdf = new byte[] { 0x25, 0x50, 0x44, 0x46 };
+        var n = 0;
+        var (c, h) = Make(_ => n++ switch
+        {
+            0 => FakeHttpMessageHandler.Json(200, "{\"data\":[{\"day\":\"2026-11-01\",\"balance_minor\":\"100\"}]}"),
+            1 => Pdf(pdf),
+            2 => FakeHttpMessageHandler.Json(404, "{\"error\":\"statement_empty\"}"),
+            _ => Ok("{\"data\":{\"items\":[]}}"),
+        });
+        var days = await c.Balances.HistoryAsync(days: 7, currency: "BRL");
+        Assert.Equal("100", days[0].GetProperty("balance_minor").GetString());
+        Assert.Equal("https://api.local/v1/test/balances/history?days=7&currency=BRL", h.Requests[0].Uri.ToString());
+
+        var bytes = await c.Transactions.StatementPdfAsync("2026-11-01", "2026-11-07");
+        Assert.Equal(pdf, bytes);
+        Assert.Equal("https://api.local/v1/test/statement/pdf?from=2026-11-01&to=2026-11-07", h.Requests[1].Uri.ToString());
+
+        var err = await Assert.ThrowsAsync<ClarianException>(() => c.Transactions.StatementPdfAsync("2026-11-01", "2026-11-07"));
+        Assert.Equal(404, err.Status);
+        Assert.Equal("statement_empty", err.Code);
+
+        await c.PaymentLinks.ReplaceProductsAsync("link-1", new object[] { new { product_id = "p1", quantity = 2 } });
+        Assert.Equal("PUT", h.Requests[3].Method);
+        Assert.Equal("https://api.local/v1/test/payment-links/link-1/products", h.Requests[3].Uri.ToString());
+        Assert.Equal("{\"items\":[{\"product_id\":\"p1\",\"quantity\":2}]}", h.Requests[3].Body);
+    }
+
+    [Fact]
+    public async Task ReadsRemainingNewRoutesWithTheirQuery()
+    {
+        var (c, h) = Make(_ => Ok());
+        await c.Transactions.DailyAsync(days: 3, source: "pix");
+        Assert.Equal("https://api.local/v1/test/transactions/daily?days=3&source=pix", h.Last.Uri.ToString());
+        await c.Conversions.PriceHistoryAsync("USDT", "BRL", days: 30);
+        Assert.Equal("https://api.local/v1/test/prices/history?base=USDT&quote=BRL&days=30", h.Last.Uri.ToString());
+        await c.PaymentLinks.ProductsAsync("link 1");
+        Assert.Equal("/v1/test/payment-links/link%201/products", h.Last.AbsolutePath);
+        Assert.Equal("GET", h.Last.Method);
+        await c.ApiKeys.UsageAsync();
+        Assert.Equal("https://api.local/v1/test/api-keys/usage", h.Last.Uri.ToString());
+    }
+
     [Fact]
     public void ToStringMasksKey()
     {

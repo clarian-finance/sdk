@@ -62,22 +62,14 @@ module Clarian
 
     # Calls /v1/{live|test}/<path> and returns the `data` member of the reply.
     def request(method, path, query: nil, body: nil, idempotency_key: nil, otp_code: nil)
-      env = @environment == "live" ? "live" : "test"
-      url = "#{@base_url}/v1/#{env}/#{path}#{query_string(query)}"
-      headers = { "Authorization" => "Bearer #{@api_key}", "X-Workspace-Id" => @workspace_id }
-      headers["Content-Type"] = "application/json" unless body.nil?
-      headers["X-Subaccount-Id"] = @subaccount_id if present?(@subaccount_id)
-      headers["Idempotency-Key"] = idempotency_key if present?(idempotency_key)
-      headers["X-OTP-Code"] = otp_code if present?(otp_code)
-      raw = body.nil? ? nil : JSON.generate(Http.reject_floats(body))
-      # Only a request that cannot double-apply is retried: reads, deletes, or a create with an idempotency key.
-      retryable = %w[GET DELETE].include?(method) || present?(idempotency_key)
-      status, text = send_with_retries(method, url, headers, raw, retryable ? @max_retries : 0)
-      json = parse(text.to_s)
-      obj = json.is_a?(Hash) ? json : {}
-      raise ClarianError.new(status, obj) unless (200..299).cover?(status)
-
+      text = perform(method, path, query, body, idempotency_key, otp_code)
+      json = parse(text)
       json.is_a?(Hash) && json.key?("data") ? json["data"] : json
+    end
+
+    # Same call for a binary reply such as a PDF: returns the raw bytes, no JSON parsing.
+    def request_bytes(method, path, query: nil)
+      perform(method, path, query, nil, nil, nil).b
     end
 
     # Dots are encoded too, so "." and ".." never become path dot-segments.
@@ -99,6 +91,26 @@ module Clarian
     end
 
     private
+
+    # Sends one call and returns the reply body text; raises ClarianError on non-2xx.
+    def perform(method, path, query, body, idempotency_key, otp_code)
+      env = @environment == "live" ? "live" : "test"
+      url = "#{@base_url}/v1/#{env}/#{path}#{query_string(query)}"
+      headers = { "Authorization" => "Bearer #{@api_key}", "X-Workspace-Id" => @workspace_id }
+      headers["Content-Type"] = "application/json" unless body.nil?
+      headers["X-Subaccount-Id"] = @subaccount_id if present?(@subaccount_id)
+      headers["Idempotency-Key"] = idempotency_key if present?(idempotency_key)
+      headers["X-OTP-Code"] = otp_code if present?(otp_code)
+      raw = body.nil? ? nil : JSON.generate(Http.reject_floats(body))
+      # Only a request that cannot double-apply is retried: reads, deletes, or a create with an idempotency key.
+      retryable = %w[GET DELETE].include?(method) || present?(idempotency_key)
+      status, text = send_with_retries(method, url, headers, raw, retryable ? @max_retries : 0)
+      text = text.to_s
+      return text if (200..299).cover?(status)
+
+      json = parse(text)
+      raise ClarianError.new(status, json.is_a?(Hash) ? json : {})
+    end
 
     def present?(v) = !v.nil? && !v.to_s.empty?
 

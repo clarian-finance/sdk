@@ -122,11 +122,37 @@ final class Http
      */
     public function request(string $method, string $path, array $query = [], mixed $body = null, ?string $idempotencyKey = null, ?string $otpCode = null): mixed
     {
+        $json = $body === null ? null : json_encode(self::normalize($body), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        [$status, $text] = $this->call($method, $path, $query, $json, $idempotencyKey, $otpCode);
+        $obj = self::decode($text);
+        if ($status < 200 || $status > 299) {
+            throw new ClarianError($status, $obj);
+        }
+        return array_key_exists('data', $obj) ? $obj['data'] : $obj;
+    }
+
+    /**
+     * Same call for a binary reply such as a PDF: returns the raw bytes. A non-2xx reply still
+     * raises ClarianError from its JSON body.
+     * @param array<string, mixed> $query
+     */
+    public function requestBytes(string $path, array $query = []): string
+    {
+        [$status, $text] = $this->call('GET', $path, $query, null, null, null);
+        if ($status < 200 || $status > 299) {
+            throw new ClarianError($status, self::decode($text));
+        }
+        return $text;
+    }
+
+    /** @return array{0: int, 1: string} status and raw body */
+    private function call(string $method, string $path, array $query, ?string $json, ?string $idempotencyKey, ?string $otpCode): array
+    {
         $env = $this->environment === 'live' ? 'live' : 'test';
         $q = array_filter($query, static fn ($v) => is_string($v) || is_int($v));
         $url = rtrim($this->baseUrl, '/') . "/v1/$env/$path" . ($q === [] ? '' : '?' . http_build_query($q, '', '&', PHP_QUERY_RFC3986));
         $headers = ['Authorization' => 'Bearer ' . $this->apiKey, 'X-Workspace-Id' => $this->workspaceId];
-        if ($body !== null) {
+        if ($json !== null) {
             $headers['Content-Type'] = 'application/json';
         }
         if ($this->subaccountId !== null && $this->subaccountId !== '') {
@@ -138,20 +164,19 @@ final class Http
         if ($otpCode !== null && $otpCode !== '') {
             $headers['X-OTP-Code'] = $otpCode;
         }
-        $json = $body === null ? null : json_encode(self::normalize($body), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
         // Only a request that cannot double-apply is retried: reads, deletes, or a create with an idempotency key.
         $retryable = $method === 'GET' || $method === 'DELETE' || ($idempotencyKey !== null && $idempotencyKey !== '');
-        [$status, $text] = $this->sendWithRetry($method, $url, $headers, $json, $retryable ? $this->maxRetries : 0);
+        return $this->sendWithRetry($method, $url, $headers, $json, $retryable ? $this->maxRetries : 0);
+    }
 
+    /** @return array<mixed> the decoded reply, or an invalid_json_response envelope */
+    private static function decode(string $text): array
+    {
         $obj = $text === '' ? [] : json_decode($text, true, 512, JSON_BIGINT_AS_STRING);
         if ($text !== '' && json_last_error() !== JSON_ERROR_NONE) {
             $obj = ['error' => 'invalid_json_response', 'message' => substr($text, 0, 500)];
         }
-        $obj = is_array($obj) ? $obj : [];
-        if ($status < 200 || $status > 299) {
-            throw new ClarianError($status, $obj);
-        }
-        return array_key_exists('data', $obj) ? $obj['data'] : $obj;
+        return is_array($obj) ? $obj : [];
     }
 
     /** @return array{0: int, 1: string} */

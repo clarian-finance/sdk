@@ -15,6 +15,8 @@ public abstract class Resource
 
     private protected Task<JsonElement> Get(string path, (string, object?)[]? query = null, CancellationToken ct = default) =>
         RequestAsync(C, HttpMethod.Get, path, query, ct: ct);
+    private protected Task<byte[]> GetBytes(string path, (string, object?)[]? query = null, CancellationToken ct = default) =>
+        RequestBytesAsync(C, path, query, ct);
     private protected Task<JsonElement> Send(HttpMethod m, string path, object? body = null, string? idempotencyKey = null, CancellationToken ct = default) =>
         RequestAsync(C, m, path, body: body, idempotencyKey: idempotencyKey, ct: ct);
 }
@@ -23,6 +25,9 @@ public sealed class Balances : Resource
 {
     internal Balances(ClientConfig c) : base(c) { }
     public Task<JsonElement> ListAsync(CancellationToken ct = default) => Get("balances", ct: ct);
+    /// <summary>End-of-day balance per day.</summary>
+    public Task<JsonElement> HistoryAsync(int? days = null, string? currency = null, CancellationToken ct = default) =>
+        Get("balances/history", Q(("days", days), ("currency", currency)), ct);
 }
 
 public sealed class Wallets : Resource
@@ -46,6 +51,12 @@ public sealed class Transactions : Resource
     public Task<JsonElement> StatementAsync(int? limit = null, string? before = null, string? from = null, string? to = null,
         string? currency = null, string? kind = null, CancellationToken ct = default) =>
         Get("statement", Q(("limit", limit), ("before", before), ("from", from), ("to", to), ("currency", currency), ("kind", kind)), ct);
+    /// <summary>The statement for a date range (<c>YYYY-MM-DD</c>) as PDF file bytes, not JSON.</summary>
+    public Task<byte[]> StatementPdfAsync(string from, string to, string? currency = null, CancellationToken ct = default) =>
+        GetBytes("statement/pdf", Q(("from", from), ("to", to), ("currency", currency)), ct);
+    /// <summary>Volume in and out per day.</summary>
+    public Task<JsonElement> DailyAsync(int? days = null, string? source = null, CancellationToken ct = default) =>
+        Get("transactions/daily", Q(("days", days), ("source", source)), ct);
 }
 
 /// <summary>PIX cash-in: a charge the payer pays with a QR code / copia-e-cola.</summary>
@@ -97,6 +108,9 @@ public sealed class Conversions : Resource
         Send(HttpMethod.Post, "rfq/execute", new { quote_id = quoteId }, ct: ct);
     public Task<JsonElement> PricesAsync(IEnumerable<string>? symbols = null, CancellationToken ct = default) =>
         Get("prices", Q(("symbols", symbols is null ? null : string.Join(",", symbols))), ct);
+    /// <summary>Rates you were quoted, per day.</summary>
+    public Task<JsonElement> PriceHistoryAsync(string baseCurrency, string quoteCurrency, int? days = null, CancellationToken ct = default) =>
+        Get("prices/history", Q(("base", baseCurrency), ("quote", quoteCurrency), ("days", days)), ct);
 }
 
 public sealed class Trading : Resource
@@ -192,6 +206,10 @@ public sealed class PaymentLinks : Resource
     public Task<JsonElement> SplitsAsync(string id, CancellationToken ct = default) => Get($"payment-links/{Seg(id)}/splits", ct: ct);
     public Task<JsonElement> ReplaceSplitsAsync(string id, object body, CancellationToken ct = default) =>
         Send(HttpMethod.Put, $"payment-links/{Seg(id)}/splits", body, ct: ct);
+    public Task<JsonElement> ProductsAsync(string id, CancellationToken ct = default) => Get($"payment-links/{Seg(id)}/products", ct: ct);
+    /// <summary>Replaces the whole product list of a checkout.</summary>
+    public Task<JsonElement> ReplaceProductsAsync(string id, IEnumerable<object> items, CancellationToken ct = default) =>
+        Send(HttpMethod.Put, $"payment-links/{Seg(id)}/products", new { items }, ct: ct);
     public Task<JsonElement> ChargeAsync(string id, object body, string idempotencyKey, CancellationToken ct = default) =>
         Send(HttpMethod.Post, $"payment-links/{Seg(id)}/charges", body, RequireKey(idempotencyKey), ct);
 }
@@ -227,6 +245,7 @@ public sealed class ApiKeys : Resource
     internal ApiKeys(ClientConfig c) : base(c) { }
     public Task<JsonElement> ListAsync(CancellationToken ct = default) => Get("api-keys", ct: ct);
     public Task<JsonElement> AuditAsync(int? limit = null, CancellationToken ct = default) => Get("api-keys/audit", Q(("limit", limit)), ct);
+    public Task<JsonElement> UsageAsync(int? days = null, CancellationToken ct = default) => Get("api-keys/usage", Q(("days", days)), ct);
 }
 
 public sealed class Settings : Resource

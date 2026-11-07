@@ -12,6 +12,7 @@ module Clarian
     private
 
     def get(path, query = nil) = @http.request("GET", path, query: query)
+    def get_bytes(path, query = nil) = @http.request_bytes("GET", path, query: query)
     def post(path, body = nil, **opts) = @http.request("POST", path, body: body, **opts)
     def patch(path, body) = @http.request("PATCH", path, body: body)
     def put(path, body) = @http.request("PUT", path, body: body)
@@ -30,6 +31,8 @@ module Clarian
 
   class Balances < Resource
     def list = get("balances")
+    # End-of-day balance per day. Params: days, currency.
+    def history(params = {}) = get("balances/history", params)
   end
 
   class Wallets < Resource
@@ -44,6 +47,13 @@ module Clarian
     def list(params = {}) = get("transactions", params)
     def retrieve(id) = get("transactions/#{seg(id)}")
     def statement(params = {}) = get("statement", params)
+    # Volume in and out per day. Params: days, source.
+    def daily(params = {}) = get("transactions/daily", params)
+
+    # The statement for a date range as a PDF: returns raw bytes (String, binary encoding).
+    def statement_pdf(from:, to:, currency: nil)
+      get_bytes("statement/pdf", { from: from, to: to, currency: currency })
+    end
   end
 
   # PIX cash-in: a charge the payer pays with a QR code / copia-e-cola.
@@ -88,6 +98,8 @@ module Clarian
     def execute(quote_id) = post("rfq/execute", { quote_id: quote_id })
 
     def prices(symbols = nil) = get("prices", { symbols: symbols&.join(",") })
+    # Rates you were quoted, per day. Params: base, quote, days.
+    def price_history(params) = get("prices/history", params)
   end
 
   # BRL moves between `available` and `trading`; conversions spend BRL from `trading`.
@@ -167,6 +179,9 @@ module Clarian
     def stats(params = {}) = get("payment-links/stats", params)
     def splits(id) = get("payment-links/#{seg(id)}/splits")
     def replace_splits(id, body) = put("payment-links/#{seg(id)}/splits", body)
+    def products(id) = get("payment-links/#{seg(id)}/products")
+    # Replaces the whole product list of a checkout.
+    def replace_products(id, items) = put("payment-links/#{seg(id)}/products", { items: items })
 
     def charge(id, body, idempotency_key)
       with_key(idempotency_key) { |k| post("payment-links/#{seg(id)}/charges", body, idempotency_key: k) }
@@ -201,6 +216,8 @@ module Clarian
   class ApiKeys < Resource
     def list = get("api-keys")
     def audit(params = {}) = get("api-keys/audit", params)
+    # Params: days.
+    def usage(params = {}) = get("api-keys/usage", params)
   end
 
   class Settings < Resource

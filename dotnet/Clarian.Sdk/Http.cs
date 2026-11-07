@@ -61,6 +61,23 @@ internal static class Http
         (string, object?)[]? query = null, object? body = null,
         string? idempotencyKey = null, string? otpCode = null, CancellationToken ct = default)
     {
+        using var resp = await SendAsync(c, method, path, query, body, idempotencyKey, otpCode, ct).ConfigureAwait(false);
+        return await FinishAsync(resp, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Same call for a binary reply such as a PDF: returns the raw bytes, or throws the usual error.</summary>
+    internal static async Task<byte[]> RequestBytesAsync(ClientConfig c, string path, (string, object?)[]? query = null, CancellationToken ct = default)
+    {
+        using var resp = await SendAsync(c, HttpMethod.Get, path, query, null, null, null, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode) throw new ClarianException((int)resp.StatusCode, await ParseAsync(resp, ct).ConfigureAwait(false));
+        return await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Sends with retries. The caller owns the returned response and disposes it.</summary>
+    private static async Task<HttpResponseMessage> SendAsync(
+        ClientConfig c, HttpMethod method, string path,
+        (string, object?)[]? query, object? body, string? idempotencyKey, string? otpCode, CancellationToken ct)
+    {
         var env = c.Environment == ClarianEnvironment.Live ? "live" : "test";
         var url = $"{c.BaseUrl}/v1/{env}/{path}{QueryString(query)}";
         var json = body is null ? null : JsonSerializer.Serialize(body, body.GetType(), Json);
@@ -90,7 +107,7 @@ internal static class Http
             if (!again || attempt >= retries)
             {
                 if (error is not null) ExceptionDispatchInfo.Capture(error).Throw();
-                using (resp) return await FinishAsync(resp!, ct).ConfigureAwait(false);
+                return resp!;
             }
             var delay = Backoff(attempt, resp?.Headers.RetryAfter?.Delta);
             resp?.Dispose();
@@ -106,20 +123,24 @@ internal static class Http
 
     private static async Task<JsonElement> FinishAsync(HttpResponseMessage resp, CancellationToken ct)
     {
+        var root = await ParseAsync(resp, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode) throw new ClarianException((int)resp.StatusCode, root);
+        return root.ValueKind == JsonValueKind.Object && root.TryGetProperty("data", out var data) ? data : root;
+    }
+
+    private static async Task<JsonElement> ParseAsync(HttpResponseMessage resp, CancellationToken ct)
+    {
         var text = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        JsonElement root;
         try
         {
             using var doc = JsonDocument.Parse(text == "" ? "{}" : text);
-            root = doc.RootElement.Clone();
+            return doc.RootElement.Clone();
         }
         catch (JsonException)
         {
             var fallback = new { error = "invalid_json_response", message = text.Length > 500 ? text[..500] : text };
-            root = JsonSerializer.SerializeToElement(fallback);
+            return JsonSerializer.SerializeToElement(fallback);
         }
-        if (!resp.IsSuccessStatusCode) throw new ClarianException((int)resp.StatusCode, root);
-        return root.ValueKind == JsonValueKind.Object && root.TryGetProperty("data", out var data) ? data : root;
     }
 
     /// <summary>BigInteger amounts go on the wire as strings.</summary>
