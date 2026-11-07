@@ -7,7 +7,7 @@ Requests and replies are plain `dict`s shaped as in the OpenAPI reference (`open
 ## Install
 
 ```bash
-pip install "git+https://github.com/clarian-finance/sdk@v0.6.0#subdirectory=python"
+pip install "git+https://github.com/clarian-finance/sdk@v0.7.0#subdirectory=python"
 ```
 
 ## Quick start
@@ -174,7 +174,7 @@ Actions that need a person's own second factor stay in the dashboard: inviting o
 | `webhooks` | `list`, `create`, `retrieve`, `update`, `delete`, `test`, `deliveries`, `resend` |
 | `payment_links` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replace_splits`, `charge` |
 | `checkout` | `retrieve`, `pay` |
-| `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions` |
+| `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions`, `transfer`, `fees`, `update_fees` |
 | `whitelist`, `bank_accounts`, `api_keys`, `settings`, `notifications`, `team`, `approvals` | read |
 | `workflows`, `treasury` | `list`, `create` (+ `workflows.runs`) |
 

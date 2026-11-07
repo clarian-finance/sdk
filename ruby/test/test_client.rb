@@ -157,6 +157,28 @@ class TestClient < Minitest::Test
     assert_empty @t.calls
   end
 
+  def test_history_routes_and_statement_pdf_bytes
+    pdf = "%PDF-1.4\x00\xFF".b
+    c = client([200, { "data" => [{ "day" => "2026-11-01", "balance_minor" => "100" }] }],
+               [200, pdf, { "content-type" => "application/pdf" }],
+               [404, { "error" => "statement_empty" }],
+               [200, { "data" => { "items" => [] } }])
+    days = c.balances.history(days: 7, currency: "BRL")
+    assert_equal "100", days[0]["balance_minor"]
+    assert_equal "https://api.clarian.finance/v1/test/balances/history?days=7&currency=BRL", @t.calls[0][:url]
+    bytes = c.transactions.statement_pdf(from: "2026-11-01", to: "2026-11-07")
+    assert_equal pdf, bytes
+    assert_equal Encoding::BINARY, bytes.encoding
+    assert_equal "https://api.clarian.finance/v1/test/statement/pdf?from=2026-11-01&to=2026-11-07", @t.calls[1][:url]
+    err = assert_raises(Clarian::ClarianError) { c.transactions.statement_pdf(from: "2026-11-01", to: "2026-11-07") }
+    assert_equal 404, err.status
+    assert_equal "statement_empty", err.code
+    c.payment_links.replace_products("link-1", [{ product_id: "p1", quantity: 2 }])
+    assert_equal "PUT", @t.calls[3][:method]
+    assert_equal "https://api.clarian.finance/v1/test/payment-links/link-1/products", @t.calls[3][:url]
+    assert_equal({ "items" => [{ "product_id" => "p1", "quantity" => 2 }] }, @t.calls[3][:body])
+  end
+
   def test_dot_and_empty_ids_refused
     c = client([200, { "data" => {} }])
     ["", ".", ".."].each { |id| assert_raises(ArgumentError) { c.wallets.retrieve(id) } }

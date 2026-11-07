@@ -3,7 +3,7 @@
   "info": {
     "title": "Clarian API",
     "version": "2.0.0",
-    "description": "Customer-facing API for the Clarian B2B crypto/PIX platform. Every route below lives under /v1/{env}/ and is reached with an API key (or, for a handful of owner/admin dashboard actions, a Better Auth session). Wallets, PIX on/off-ramp, OTC/RFQ, KYC, webhooks, payment links and multi-tenant wallet-as-a-service sub-accounts. Rate limit: 120 requests per minute per API key (fixed one-minute window); over it the reply is 429 `rate_limited`, retry after the window resets. Amounts are integer minor units as strings: BRL scale 2 (R$ 10,00 = \"1000\"), USDT/USDC scale 6."
+    "description": "Customer-facing API for the Clarian B2B crypto/PIX platform. Every route below lives under /v1/{env}/ and is reached with an API key (or, for a handful of owner/admin dashboard actions, a Better Auth session). Wallets, PIX on/off-ramp, OTC/RFQ, KYC, webhooks, payment links and multi-tenant wallet-as-a-service sub-accounts. Rate limit: 120 requests per minute per API key (fixed one-minute window); over it the reply is 429 `rate_limited`, retry after the window resets. Amounts are integer minor units as strings: BRL scale 2 (R$ 10,00 = \"1000\"), USDT/USDC scale 6. Until the workspace holder is KYC-approved, every /v1 route answers 403 `kyc_not_approved` to an API key, in live and test, reads and `ping` included. A dashboard session reaches only the onboarding routes, the read-only KYC routes, public checkout and the stop actions (revoke an API key; delete a webhook, team member, payout account, whitelist entry or payment link)."
   },
   "servers": [
     {
@@ -77,6 +77,22 @@
     {
       "name": "Trading",
       "description": "BRL and stablecoins in the pooled exchange account: send BRL in, convert, withdraw coins to your wallet."
+    },
+    {
+      "name": "Onboarding",
+      "description": "The workspace holder's own verification. Dashboard session only; open before KYC approval."
+    },
+    {
+      "name": "Products"
+    },
+    {
+      "name": "Approvals"
+    },
+    {
+      "name": "Workflows"
+    },
+    {
+      "name": "Refunds"
     }
   ],
   "paths": {
@@ -113,6 +129,16 @@
                       "type": "boolean"
                     }
                   }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "kyc_not_approved (until the workspace holder is KYC-approved, live and test)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -173,6 +199,16 @@
                       }
                     }
                   }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "kyc_not_approved (until the workspace holder is KYC-approved, live and test)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -1016,7 +1052,7 @@
             }
           },
           "403": {
-            "description": "kyc_not_approved (live, app customers only)",
+            "description": "kyc_not_approved (until the workspace holder is KYC-approved, live and test)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1221,7 +1257,7 @@
             }
           },
           "403": {
-            "description": "simulate_only_in_sandbox",
+            "description": "simulate_only_in_sandbox | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -1367,7 +1403,7 @@
             }
           },
           "403": {
-            "description": "kyc_not_approved | payout_account_required | session_required | settlement_key_required | titularity_mismatch | trading_destination_mismatch | source_document_missing",
+            "description": "kyc_not_approved | payout_account_required | session_required | settlement_key_required | trading_destination_mismatch | source_document_missing | workspace_frozen",
             "content": {
               "application/json": {
                 "schema": {
@@ -1398,6 +1434,24 @@
           },
           "422": {
             "description": "fee_exceeds_amount | pix_key_rejected | receiver_document_mismatch | destination_verification_failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "payout_velocity: this party's payouts are blocked after repeated refusals",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the block lifts.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1447,7 +1501,7 @@
             }
           }
         },
-        "description": "Starts a PIX cash-out and debits the amount plus fee at once. With an API key the money goes to the workspace's registered settlement key, whatever `pix_key` says (`pix_key` is still required). A workspace with no settlement key gets 403 `settlement_key_required`; the owner registers one in the dashboard. Send `Idempotency-Key`: a retry with the same key returns the same payment and never pays twice. Errors: `insufficient_balance`, `pix_key_required`, `settlement_key_required`, `kyc_not_approved` (live)."
+        "description": "Starts a PIX cash-out and debits the amount plus fee at once. With an API key the money goes to the workspace's registered settlement key, whatever `pix_key` says (`pix_key` is still required). A workspace with no settlement key gets 403 `settlement_key_required`; the owner registers one in the dashboard. Send `Idempotency-Key`: a retry with the same key returns the same payment and never pays twice. Errors: `insufficient_funds`, `pix_key_required`, `settlement_key_required`, `kyc_not_approved`, `workspace_frozen`, `payout_velocity`. Three refusals (`insufficient_funds` or `pix_key_rejected`) for one party within an hour block that party's payouts in the environment for 24 h: new requests answer 429 `payout_velocity` with `Retry-After`; a replay of a stored payout still returns it."
       }
     },
     "/v1/{env}/pix/payouts/{id}": {
@@ -1593,7 +1647,7 @@
             }
           },
           "403": {
-            "description": "simulate_only_in_sandbox",
+            "description": "simulate_only_in_sandbox | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -1641,7 +1695,7 @@
           "PIX"
         ],
         "summary": "Confirm a saved-account PIX cash-out",
-        "description": "Step 2 of the two-step payout: the customer reviewed the resolved receiver from the initiate call and now confirms. Dashboard session only (an API key gets 403 session_required); needs a fresh X-OTP-Code when the session has 2FA. Must run within 10 minutes of the initiate. A cash-out created with an API key needs no confirm.",
+        "description": "Step 2 of the two-step payout: the customer reviewed the resolved receiver from the initiate call and now confirms. Dashboard session only (an API key gets 403 session_required); needs a fresh X-OTP-Code when the session has 2FA. Must run within 10 minutes of the initiate. A cash-out created with an API key needs no confirm. While the payer party's payouts are velocity-blocked the confirm answers 429 `payout_velocity` and the payout fails; start a new one after `Retry-After`.",
         "operationId": "confirmPixPayout",
         "parameters": [
           {
@@ -1691,7 +1745,7 @@
             }
           },
           "403": {
-            "description": "session_required | kyc_not_approved",
+            "description": "session_required | kyc_not_approved | workspace_frozen",
             "content": {
               "application/json": {
                 "schema": {
@@ -1712,6 +1766,24 @@
           },
           "409": {
             "description": "confirmation_expired | not_confirmable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "payout_velocity: this party's payouts are blocked after repeated refusals",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the block lifts.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -2023,7 +2095,7 @@
             }
           },
           "403": {
-            "description": "owner_admin_required | two_factor_required | source_document_missing | titularity_mismatch",
+            "description": "owner_admin_required | two_factor_required | source_document_missing | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -2119,7 +2191,7 @@
             }
           },
           "403": {
-            "description": "owner_admin_required",
+            "description": "owner_admin_required | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -2629,7 +2701,7 @@
             }
           },
           "403": {
-            "description": "simulate_only_in_sandbox",
+            "description": "simulate_only_in_sandbox | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -2847,7 +2919,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -3004,7 +3076,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -3419,6 +3491,152 @@
         }
       }
     },
+    "/v1/{env}/onboarding/document": {
+      "put": {
+        "tags": [
+          "Onboarding"
+        ],
+        "summary": "Set the holder's CPF/CNPJ",
+        "description": "Dashboard session, workspace owner only, `live` only (`test` answers 404). For a holder with no valid CPF/CNPJ for its kind: created before the document became mandatory at sign-up, or stored invalid (wrong check digits, or a CPF on a company). 11 valid digits make the holder a person (CPF), 14 a company (CNPJ). The same document already stored answers 200, so a retry is safe. Open before KYC approval; refused once approved. One document per holder counts only holders whose KYC was submitted or approved; sign-up never checks it.",
+        "operationId": "setOnboardingDocument",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "document_number"
+                ],
+                "properties": {
+                  "document_number": {
+                    "type": "string",
+                    "description": "CPF or CNPJ digits; punctuation is ignored."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The holder's onboarding state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "person",
+                            "business"
+                          ]
+                        },
+                        "kyc_status": {
+                          "type": "string"
+                        },
+                        "document_type": {
+                          "type": "string",
+                          "enum": [
+                            "cpf",
+                            "cnpj"
+                          ]
+                        },
+                        "document_number": {
+                          "type": "string"
+                        },
+                        "document_missing": {
+                          "type": "boolean",
+                          "description": "False once a valid CPF/CNPJ for the kind is stored."
+                        },
+                        "required_slots": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "document_invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "owner_required | owner_admin_required | session_required | kyc_not_approved (an API key, before approval)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found (`test`) | party_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "document_in_use (another holder's KYC, submitted or later, has it; which one is never said; a not_started, pending or rejected holder with it does not count) | document_already_set (a different valid document is stored) | verification_locked (the holder's KYC is submitted, under review or awaiting an answer; the stored document is what staff review) | kyc_already_approved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "See the operation description for the `error` codes this route returns, plus the shared 401/403/429 codes from Authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Upstream/provider failure; `error` is one of the codes named in the operation description.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/{env}/whitelist": {
       "get": {
         "tags": [
@@ -3530,7 +3748,7 @@
             }
           },
           "403": {
-            "description": "owner_admin_required | two_factor_required",
+            "description": "owner_admin_required | two_factor_required | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -3670,7 +3888,7 @@
             }
           },
           "403": {
-            "description": "owner_admin_required | two_factor_required",
+            "description": "owner_admin_required | two_factor_required | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -3753,7 +3971,7 @@
             }
           },
           "403": {
-            "description": "owner_admin_required",
+            "description": "owner_admin_required | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -3963,7 +4181,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -4167,7 +4385,7 @@
             }
           },
           "403": {
-            "description": "resend_only_in_sandbox",
+            "description": "resend_only_in_sandbox | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -4503,7 +4721,7 @@
             }
           },
           "403": {
-            "description": "test_only_in_sandbox",
+            "description": "kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -5774,7 +5992,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -5854,7 +6072,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited | owner_admin_required",
+            "description": "party_scope_limited | owner_admin_required | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -5938,7 +6156,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -6025,7 +6243,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -6124,7 +6342,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -6202,7 +6420,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -6288,7 +6506,7 @@
             }
           },
           "403": {
-            "description": "owner_admin_required",
+            "description": "owner_admin_required | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -6377,7 +6595,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -6475,7 +6693,7 @@
             }
           },
           "403": {
-            "description": "owner_admin_required",
+            "description": "owner_admin_required | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -6558,7 +6776,7 @@
             }
           },
           "403": {
-            "description": "owner_admin_required",
+            "description": "owner_admin_required | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -6646,7 +6864,7 @@
             }
           },
           "403": {
-            "description": "owner_admin_required",
+            "description": "owner_admin_required | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -6720,7 +6938,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -6816,7 +7034,7 @@
             }
           },
           "403": {
-            "description": "owner_admin_required",
+            "description": "owner_admin_required | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -6893,7 +7111,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -6962,7 +7180,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -7011,7 +7229,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -7055,7 +7273,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -7139,7 +7357,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -7188,7 +7406,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -7207,7 +7425,7 @@
         ],
         "summary": "Get the approval policy",
         "operationId": "getApprovalPolicy",
-        "description": "Workspace-level keys only; a customer-scoped key gets 403 `party_scope_limited`.",
+        "description": "Workspace-level keys only; a customer-scoped key gets 403 `party_scope_limited`. The policy carries scope_account (PIX, TED, conversions) and scope_wallet (crypto sends), both true by default; a dashboard PUT may set them, and dropping one while the policy is armed is a weakening that needs a settings_multisig_update approval.",
         "parameters": [
           {
             "$ref": "#/components/parameters/EnvPath"
@@ -7234,7 +7452,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -7283,7 +7501,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -7327,7 +7545,7 @@
             }
           },
           "403": {
-            "description": "party_scope_limited",
+            "description": "party_scope_limited | kyc_not_approved",
             "content": {
               "application/json": {
                 "schema": {
@@ -7724,6 +7942,1542 @@
           },
           "503": {
             "description": "trading_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/statement/pdf": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Statement PDF",
+        "description": "Available-balance statement with opening and closing balance. At most 93 days and 2,000 lines; over that answers 422 statement_too_large.",
+        "operationId": "getStatementPdf",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "$ref": "#/components/parameters/SubaccountHeader"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Start, inclusive."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "End, exclusive."
+          },
+          {
+            "name": "currency",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Default BRL."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The PDF",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/balances/history": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Daily balance history",
+        "description": "Closing available balance per currency per day; the last point equals the current balance.",
+        "operationId": "getBalanceHistory",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "$ref": "#/components/parameters/SubaccountHeader"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Days back, including today (Sao Paulo)."
+          },
+          {
+            "name": "currency",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "One currency."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/v1/{env}/transactions/daily": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Daily volume",
+        "description": "Completed volume per day of creation, by kind and currency, in minor units.",
+        "operationId": "getDailyVolume",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "$ref": "#/components/parameters/SubaccountHeader"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Days back, including today (Sao Paulo)."
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "checkout keeps payment-link payments only."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/v1/{env}/prices/history": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Quoted rate history",
+        "description": "Rates this workspace was quoted per day. Not a market history.",
+        "operationId": "getPriceHistory",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "$ref": "#/components/parameters/SubaccountHeader"
+          },
+          {
+            "name": "base",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Base currency as quoted."
+          },
+          {
+            "name": "quote",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Quote currency as quoted."
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Days back, including today (Sao Paulo)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/v1/{env}/api-keys/usage": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "API key usage",
+        "description": "Request count, error rate in basis points and p95 latency. Coverage is writes_and_denied: successful GET requests are not recorded.",
+        "operationId": "getApiKeyUsage",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Days back, including today (Sao Paulo)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/v1/{env}/notifications/{id}/read": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Mark a notification read",
+        "operationId": "markNotificationRead",
+        "description": "Idempotent: repeating keeps the first read_at. Read state is shared by the workspace.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "party_scope_limited | viewer_read_only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/notifications/read-all": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Mark all notifications read",
+        "operationId": "markAllNotificationsRead",
+        "description": "",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "party_scope_limited | viewer_read_only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/notification-preferences": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Get my notification preferences",
+        "operationId": "getNotificationPreferences",
+        "description": "Dashboard session only.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Save my notification preferences",
+        "operationId": "saveNotificationPreferences",
+        "description": "Dashboard session only. Stored only: delivery does not read them yet.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_preferences | security_email_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "preferences": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/products": {
+      "get": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "List products",
+        "operationId": "listProducts",
+        "description": "",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Create a product",
+        "operationId": "createProduct",
+        "description": "Honours Idempotency-Key.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKeyOptional"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "sku_taken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "amount_minor": {
+                    "type": "integer"
+                  },
+                  "sku": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "amount_minor"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/products/{id}": {
+      "patch": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Update a product",
+        "operationId": "updateProduct",
+        "description": "",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "amount_minor": {
+                    "type": "integer"
+                  },
+                  "sku": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "is_active": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Delete a product",
+        "operationId": "deleteProduct",
+        "description": "",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/payment-links/{id}/products": {
+      "get": {
+        "tags": [
+          "PaymentLinks"
+        ],
+        "summary": "List a checkout's products",
+        "operationId": "listLinkProducts",
+        "description": "",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "PaymentLinks"
+        ],
+        "summary": "Replace a checkout's products",
+        "operationId": "replaceLinkProducts",
+        "description": "The sum must equal the checkout's fixed amount. Never changes the charge.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "products_total_mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "unknown_product",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/approval-rules": {
+      "get": {
+        "tags": [
+          "Approvals"
+        ],
+        "summary": "List approval rules",
+        "operationId": "listApprovalRules",
+        "description": "Enforced by the money-out gate while the approval policy is armed (enabled with an active approver): an amount rule holds a payment in its currency at or above the threshold, a time rule holds one outside its window, a blocking rule refuses it (403 blocked_by_approval_rule), and an approval below a matching rule's quorum is refused (403 approval_quorum_below_rule). The response says enforced: true.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Approvals"
+        ],
+        "summary": "Create an approval rule",
+        "operationId": "createApprovalRule",
+        "description": "Owner or admin session with TOTP. Stored only.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKeyOptional"
+          },
+          {
+            "$ref": "#/components/parameters/OtpHeader"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_kind | invalid_time_window | scope_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "otp_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "amount",
+                      "time"
+                    ]
+                  },
+                  "threshold_minor": {
+                    "type": "integer"
+                  },
+                  "threshold_currency": {
+                    "type": "string"
+                  },
+                  "days": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "from_time": {
+                    "type": "string"
+                  },
+                  "to_time": {
+                    "type": "string"
+                  },
+                  "scope_account": {
+                    "type": "boolean"
+                  },
+                  "scope_wallet": {
+                    "type": "boolean"
+                  },
+                  "blocks": {
+                    "type": "boolean"
+                  },
+                  "required_approvals": {
+                    "type": "integer"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/approval-rules/{id}": {
+      "patch": {
+        "tags": [
+          "Approvals"
+        ],
+        "summary": "Turn an approval rule on or off",
+        "operationId": "setApprovalRuleEnabled",
+        "description": "While the policy is armed, turning an enabled rule off or deleting it weakens the gate and answers 403 approval_required.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/OtpHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "approval_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Approvals"
+        ],
+        "summary": "Delete an approval rule",
+        "operationId": "deleteApprovalRule",
+        "description": "While the policy is armed, turning an enabled rule off or deleting it weakens the gate and answers 403 approval_required.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/OtpHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "approval_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/workflows/{id}/pause": {
+      "post": {
+        "tags": [
+          "Workflows"
+        ],
+        "summary": "Pause a workflow",
+        "operationId": "pauseWorkflow",
+        "description": "",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/workflows/{id}/resume": {
+      "post": {
+        "tags": [
+          "Workflows"
+        ],
+        "summary": "Resume a workflow",
+        "operationId": "resumeWorkflow",
+        "description": "",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/workflows/{id}": {
+      "delete": {
+        "tags": [
+          "Workflows"
+        ],
+        "summary": "Delete a workflow",
+        "operationId": "deleteWorkflow",
+        "description": "",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/refunds": {
+      "get": {
+        "tags": [
+          "Refunds"
+        ],
+        "summary": "List the refund queue",
+        "operationId": "listRefunds",
+        "description": "",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Refunds"
+        ],
+        "summary": "Request a refund",
+        "operationId": "createRefund",
+        "description": "Queues a request. Moves no money. Idempotency-Key required.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKeyRequired"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "payment_not_refundable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "refund_exceeds_payment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "payment_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "amount_minor": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "payment_id",
+                  "reason"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/refunds/{id}/decision": {
+      "post": {
+        "tags": [
+          "Refunds"
+        ],
+        "summary": "Decide a refund request",
+        "operationId": "decideRefund",
+        "description": "Owner or admin session with TOTP. Moves no money: paying is a separate two-step outbound PIX. Four eyes: the user who requested the refund cannot approve it (403 same_user_cannot_approve).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/OtpHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "same_user_cannot_approve",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "refund_not_pending",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approve",
+                      "reject"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/subaccounts/{id}/transfers": {
+      "post": {
+        "tags": [
+          "SubAccounts"
+        ],
+        "summary": "Move BRL between you and a sub-account",
+        "operationId": "subAccountTransfer",
+        "description": "Same holder, same bank account: nothing leaves the bank. A source can never send more than its own available balance, so a sub-account cannot spend your money or a sibling's. Replaying the same `Idempotency-Key` moves nothing again. Errors: `direction_invalid`, `amount_must_be_positive`, `idempotency_key_required`, `subaccount_not_found`, `insufficient_balance` (422).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Sub-account id."
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKeyRequired"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubAccountTransferRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SubAccountTransfer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "subaccount_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "insufficient_balance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "See the operation description.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{env}/subaccounts/{id}/fees": {
+      "get": {
+        "tags": [
+          "SubAccounts"
+        ],
+        "summary": "Sub-account markup",
+        "operationId": "getSubAccountFees",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Sub-account id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SubAccountFees"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "subaccount_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "SubAccounts"
+        ],
+        "summary": "Set sub-account markup",
+        "operationId": "updateSubAccountFees",
+        "description": "The sub-account pays Clarian's fee plus this markup; the markup is credited to your available balance when the payment settles. Omitted keys keep their value. Errors: `<key>_invalid`, `subaccount_not_found`.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EnvPath"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Sub-account id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubAccountFees"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SubAccountFees"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "<key>_invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "subaccount_not_found",
             "content": {
               "application/json": {
                 "schema": {
@@ -8656,6 +10410,11 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          },
+          "last_latency_ms": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Milliseconds the last attempt took; null while pending."
           }
         },
         "additionalProperties": true
@@ -8727,6 +10486,16 @@
           },
           "metadata": {
             "type": "object"
+          },
+          "order_number": {
+            "type": "string",
+            "description": "Assigned by the database at creation; unique and increasing per workspace and environment, with possible gaps.",
+            "readOnly": true
+          },
+          "product_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "List only: how many catalog products the checkout sells. 0 for a plain payment link."
           }
         },
         "additionalProperties": true
@@ -8856,6 +10625,11 @@
           },
           "prefix": {
             "type": "string"
+          },
+          "last4": {
+            "type": "string",
+            "nullable": true,
+            "description": "Last four characters of the secret, for display. Null for keys created before it was recorded."
           },
           "scope": {
             "type": "string"
@@ -10202,6 +11976,85 @@
               "string",
               "null"
             ],
+            "format": "date-time"
+          }
+        }
+      },
+      "SubAccountTransferRequest": {
+        "type": "object",
+        "required": [
+          "direction",
+          "amount_minor"
+        ],
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "to_subaccount",
+              "to_parent"
+            ],
+            "description": "`to_subaccount` moves BRL from the holder to the sub-account; `to_parent` moves it back."
+          },
+          "amount_minor": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "BRL in centavos. Must not exceed the source's available balance."
+          }
+        }
+      },
+      "SubAccountTransfer": {
+        "type": "object",
+        "required": [
+          "journal_id",
+          "direction",
+          "amount_minor",
+          "currency"
+        ],
+        "properties": {
+          "journal_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "to_subaccount",
+              "to_parent"
+            ]
+          },
+          "amount_minor": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "BRL"
+            ]
+          }
+        }
+      },
+      "SubAccountFees": {
+        "type": "object",
+        "description": "Your markup on each sub-account, charged on top of Clarian's fee and credited to your balance. A rate is basis points (0-10000), a flat value centavos.",
+        "properties": {
+          "pix_in_rate_bps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "pix_in_flat_minor": {
+            "type": "string"
+          },
+          "pix_out_rate_bps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "pix_out_flat_minor": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
             "format": "date-time"
           }
         }

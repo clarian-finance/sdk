@@ -200,6 +200,49 @@ final class ClientTest extends TestCase
         $this->assertCount(0, $t->calls);
     }
 
+    public function testHistoryRoutesAndStatementPdfAsBytes(): void
+    {
+        $pdf = "%PDF";
+        $t = new FakeTransport([
+            self::ok([['day' => '2026-11-01', 'balance_minor' => '100']]),
+            [200, $pdf, ['content-type' => 'application/pdf']],
+            [404, '{"error":"statement_empty"}', []],
+            self::ok(['id' => 'link-1']),
+        ]);
+        $c = $this->client($t);
+        $days = $c->balances->history(['days' => 7, 'currency' => 'BRL']);
+        $this->assertSame('100', $days[0]['balance_minor']);
+        $this->assertSame('https://api.local/v1/test/balances/history?days=7&currency=BRL', $t->calls[0]['url']);
+        $this->assertSame($pdf, $c->transactions->statementPdf(['from' => '2026-11-01', 'to' => '2026-11-07']));
+        $this->assertSame('https://api.local/v1/test/statement/pdf?from=2026-11-01&to=2026-11-07', $t->calls[1]['url']);
+        try {
+            $c->transactions->statementPdf(['from' => '2026-11-01', 'to' => '2026-11-07']);
+            $this->fail('expected ClarianError');
+        } catch (ClarianError $e) {
+            $this->assertSame(404, $e->status);
+            $this->assertSame('statement_empty', $e->errorCode);
+        }
+        $c->paymentLinks->replaceProducts('link-1', [['product_id' => 'p1', 'quantity' => 2]]);
+        $this->assertSame('PUT', $t->calls[3]['method']);
+        $this->assertSame('https://api.local/v1/test/payment-links/link-1/products', $t->calls[3]['url']);
+        $this->assertSame(['items' => [['product_id' => 'p1', 'quantity' => 2]]], json_decode($t->calls[3]['body'], true));
+    }
+
+    public function testRemainingNewRoutesBuildTheirUrls(): void
+    {
+        $t = new FakeTransport([self::ok([]), self::ok([]), self::ok([]), self::ok([])]);
+        $c = $this->client($t);
+        $c->transactions->daily(['days' => 3, 'source' => 'pix']);
+        $c->conversions->priceHistory(['base' => 'BRL', 'quote' => 'USDT', 'days' => 30]);
+        $c->paymentLinks->products('link-1');
+        $c->apiKeys->usage(['days' => 14]);
+        $this->assertSame('https://api.local/v1/test/transactions/daily?days=3&source=pix', $t->calls[0]['url']);
+        $this->assertSame('https://api.local/v1/test/prices/history?base=BRL&quote=USDT&days=30', $t->calls[1]['url']);
+        $this->assertSame('https://api.local/v1/test/payment-links/link-1/products', $t->calls[2]['url']);
+        $this->assertSame('GET', $t->calls[2]['method']);
+        $this->assertSame('https://api.local/v1/test/api-keys/usage?days=14', $t->calls[3]['url']);
+    }
+
     public function testDotAndEmptyIdsRefused(): void
     {
         $t = new FakeTransport([]);

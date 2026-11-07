@@ -160,4 +160,27 @@ class ClarianClientTest {
         assertFalse(c.toString().contains("cl_test_sk_secret"));
         assertFalse(ClarianClient.builder().apiKey("cl_test_sk_secret").toString().contains("cl_test_sk_secret"));
     }
+
+    @Test void readsHistoryRoutesAndReturnsStatementPdfAsBytes() {
+        byte[] pdf = {0x25, 0x50, 0x44, 0x46};
+        Fake f = new Fake(n -> switch (n) {
+            case 1 -> json(200, "{\"data\":[{\"day\":\"2026-11-01\",\"balance_minor\":\"100\"}]}");
+            case 2 -> new HttpTransport.Response(200, Map.of("content-type", "application/pdf"), pdf);
+            case 3 -> json(404, "{\"error\":\"statement_empty\"}");
+            default -> json(200, "{\"data\":{\"items\":[]}}");
+        });
+        ClarianClient c = client(f);
+        List<Map<String, Object>> days = c.balances.history(7, "BRL");
+        assertEquals("100", days.get(0).get("balance_minor"));
+        assertEquals("https://x/v1/test/balances/history?days=7&currency=BRL", f.calls.get(0).url());
+        assertArrayEquals(pdf, c.transactions.statementPdf("2026-11-01", "2026-11-07", null));
+        assertEquals("https://x/v1/test/statement/pdf?from=2026-11-01&to=2026-11-07", f.calls.get(1).url());
+        ClarianException e = assertThrows(ClarianException.class, () -> c.transactions.statementPdf("2026-11-01", "2026-11-07", null));
+        assertEquals(404, e.status());
+        assertEquals("statement_empty", e.code());
+        c.paymentLinks.replaceProducts("link-1", List.of(Map.of("product_id", "p1")));
+        assertEquals("PUT", f.calls.get(3).method());
+        assertEquals("https://x/v1/test/payment-links/link-1/products", f.calls.get(3).url());
+        assertEquals("{\"items\":[{\"product_id\":\"p1\"}]}", f.calls.get(3).body());
+    }
 }

@@ -108,13 +108,9 @@ async function send(config: HttpClientConfig, url: string, init: RequestInit, re
   return send(config, url, init, retriesLeft - 1, attempt + 1);
 }
 
-/** Calls `/v1/{live|test}/<path>` and returns the `data` member of the reply. */
-export async function request<T>(
-  config: HttpClientConfig,
-  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
-  path: string,
-  opts: RequestOptions = {},
-): Promise<T> {
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+async function call(config: HttpClientConfig, method: Method, path: string, opts: RequestOptions): Promise<Response> {
   const envSegment = config.environment === "live" ? "live" : "test";
   const url = `${config.baseUrl}/v1/${envSegment}/${path}${queryString(opts.query)}`;
   const headers: Record<string, string> = {
@@ -128,11 +124,28 @@ export async function request<T>(
   const init = { method, headers, body: opts.body !== undefined ? toJson(opts.body) : undefined };
   // Only a request that cannot double-apply is retried: reads, deletes, or a create with an idempotency key.
   const retryable = method === "GET" || method === "DELETE" || Boolean(opts.idempotencyKey);
-  const resp = await send(config, url, init, retryable ? config.maxRetries : 0);
+  return send(config, url, init, retryable ? config.maxRetries : 0);
+}
+
+const errorOf = async (resp: Response) => {
+  const json = await parseBody(resp);
+  return new ClarianError(resp.status, typeof json === "object" && json !== null ? (json as Record<string, unknown>) : {});
+};
+
+/** Calls `/v1/{live|test}/<path>` and returns the `data` member of the reply. */
+export async function request<T>(config: HttpClientConfig, method: Method, path: string, opts: RequestOptions = {}): Promise<T> {
+  const resp = await call(config, method, path, opts);
+  if (!resp.ok) throw await errorOf(resp);
   const json = await parseBody(resp);
   const obj = typeof json === "object" && json !== null ? (json as Record<string, unknown>) : {};
-  if (!resp.ok) throw new ClarianError(resp.status, obj);
   return ("data" in obj ? obj.data : obj) as T;
+}
+
+/** Same call, for a binary reply such as a PDF: returns the raw bytes. */
+export async function requestBytes(config: HttpClientConfig, path: string, opts: RequestOptions = {}): Promise<Uint8Array> {
+  const resp = await call(config, "GET", path, opts);
+  if (!resp.ok) throw await errorOf(resp);
+  return new Uint8Array(await resp.arrayBuffer());
 }
 
 // "." and ".." are dot-segments a URL parser resolves to another route, even when encoded: refuse them.

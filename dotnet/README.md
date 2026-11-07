@@ -185,20 +185,20 @@ Every method is `async` and ends in `Async`.
 
 | Area | Methods |
 |---|---|
-| `Balances` | `List` |
+| `Balances` | `List`, `History` |
 | `Pix.Payins` | `Create`, `Retrieve`, `Simulate` |
 | `Pix.Payouts` | `Create`, `Retrieve`, `Fee`, `Lookup`, `Simulate`, `ListAccounts` |
-| `Conversions` | `Quote`, `Execute`, `Prices` |
+| `Conversions` | `Quote`, `Execute`, `Prices`, `PriceHistory` |
 | `Wallets` | `List`, `Create`, `Retrieve`, `Balance`, `Transactions` |
 | `Crypto` | `Send`, `Simulate`, `Networks` |
 | `Trading` | `Summary`, `Deposit`, `Withdraw`, `CryptoWithdraw` |
-| `Transactions` | `List`, `Retrieve`, `Statement` |
+| `Transactions` | `List`, `Retrieve`, `Statement`, `StatementPdf`, `Daily` |
 | `Customers` | `List`, `Create`, `Retrieve`, `Update` |
 | `Kyc` | `List`, `Create`, `Retrieve`, `ListRfi`, `AnswerRfi` |
 | `Webhooks` | `List`, `Create`, `Retrieve`, `Update`, `Delete`, `Test`, `Deliveries`, `Resend` |
-| `PaymentLinks` | `List`, `Create`, `Retrieve`, `Update`, `Delete`, `Payments`, `Stats`, `Splits`, `ReplaceSplits`, `Charge` |
+| `PaymentLinks` | `List`, `Create`, `Retrieve`, `Update`, `Delete`, `Payments`, `Stats`, `Splits`, `ReplaceSplits`, `Products`, `ReplaceProducts`, `Charge` |
 | `Checkout` | `Retrieve`, `Pay` |
-| `Subaccounts` | `List`, `Create`, `Retrieve`, `Balances`, `Transactions` |
+| `Subaccounts` | `List`, `Create`, `Retrieve`, `Balances`, `Transactions`, `TransferAsync`, `FeesAsync`, `UpdateFeesAsync` |
 | `Whitelist`, `BankAccounts`, `ApiKeys`, `Settings`, `Notifications`, `Team`, `Approvals` | read |
 | `Workflows`, `Treasury` | `List`, `Create` (+ `Workflows.Runs`) |
 

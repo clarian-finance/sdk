@@ -7,7 +7,7 @@ TypeScript SDK for the Clarian API v2: PIX cash-in and cash-out, BRL/stablecoin 
 ## Install
 
 ```bash
-npm install github:clarian-finance/sdk#v0.6.0
+npm install github:clarian-finance/sdk#v0.7.0
 ```
 
 ## Quick start
@@ -93,6 +93,9 @@ await clarian.kyc.create({ party_id: customer.id! });
 const sub = await clarian.subaccounts.create({ display_name: "Store 12" });
 const store = clarian.forSubaccount(sub.id!); // every call acts on that sub-account
 await store.pix.payins.create({ amount_minor: "1000" }, "store12-order-1");
+// Same holder, same bank account: move BRL and set your markup on top of Clarian's fee.
+await clarian.subaccounts.transfer(sub.id!, { direction: "to_subaccount", amount_minor: "5000" }, "fund-store12-1");
+await clarian.subaccounts.updateFees(sub.id!, { pix_in_rate_bps: 50 });
 ```
 
 ## Payment links
@@ -160,20 +163,21 @@ Actions that need a person's own second factor stay in the dashboard: inviting o
 
 | Area | Methods |
 |---|---|
-| `balances` | `list` |
+| `balances` | `list`, `history` |
 | `pix.payins` | `create`, `retrieve`, `simulate` |
 | `pix.payouts` | `create`, `retrieve`, `fee`, `lookup`, `simulate`, `listAccounts` |
-| `conversions` | `quote`, `execute`, `prices` |
+| `conversions` | `quote`, `execute`, `prices`, `priceHistory` |
 | `wallets` | `list`, `create`, `retrieve`, `balance`, `transactions` |
 | `crypto` | `send`, `simulate`, `networks` |
-| `transactions` | `list`, `retrieve`, `statement` |
+| `transactions` | `list`, `retrieve`, `statement`, `statementPdf`, `daily` |
 | `customers` | `list`, `create`, `retrieve`, `update` |
 | `kyc` | `list`, `create`, `retrieve`, `listRfi`, `answerRfi` |
 | `webhooks` | `list`, `create`, `retrieve`, `update`, `delete`, `test`, `deliveries`, `resend` |
-| `paymentLinks` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replaceSplits`, `charge` |
+| `paymentLinks` | `list`, `create`, `retrieve`, `update`, `delete`, `payments`, `stats`, `splits`, `replaceSplits`, `products`, `replaceProducts`, `charge` |
 | `checkout` | `retrieve`, `pay` |
-| `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions` |
-| `whitelist`, `bankAccounts`, `apiKeys`, `settings`, `notifications`, `team`, `approvals` | read |
+| `subaccounts` | `list`, `create`, `retrieve`, `balances`, `transactions`, `transfer`, `fees`, `updateFees` |
+| `apiKeys` | `list`, `audit`, `usage` |
+| `whitelist`, `bankAccounts`, `settings`, `notifications`, `team`, `approvals` | read |
 | `workflows`, `treasury` | `list`, `create` (+ `workflows.runs`) |
 
 Request and response types are generated from the OpenAPI reference (`openapi.json`, also at `https://app.clarian.finance/openapi.json`).

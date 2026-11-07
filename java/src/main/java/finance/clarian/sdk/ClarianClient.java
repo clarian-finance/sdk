@@ -117,6 +117,20 @@ public final class ClarianClient {
 
     /** Calls {@code /v1/{live|test}/<path>} and returns the {@code data} member of the reply. */
     Object request(String method, String path, Map<String, ?> query, Object body, String idempotencyKey, String otpCode) {
+        HttpTransport.Response resp = call(method, path, query, body, idempotencyKey, otpCode);
+        Map<String, Object> json = parseBody(resp.body());
+        if (resp.status() < 200 || resp.status() >= 300) throw new ClarianException(resp.status(), json);
+        return json.containsKey("data") ? json.get("data") : json;
+    }
+
+    /** Same call as {@link #request} for a binary reply such as a PDF: returns the raw bytes. */
+    byte[] requestBytes(String path, Map<String, ?> query) {
+        HttpTransport.Response resp = call("GET", path, query, null, null, null);
+        if (resp.status() < 200 || resp.status() >= 300) throw new ClarianException(resp.status(), parseBody(resp.body()));
+        return resp.body();
+    }
+
+    private HttpTransport.Response call(String method, String path, Map<String, ?> query, Object body, String idempotencyKey, String otpCode) {
         String url = cfg.baseUrl + "/v1/" + (environment == Environment.LIVE ? "live" : "test") + "/" + path + queryString(query);
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Authorization", "Bearer " + cfg.apiKey);
@@ -128,10 +142,7 @@ public final class ClarianClient {
         byte[] payload = body == null ? null : Json.encode(body).getBytes(StandardCharsets.UTF_8);
         // Only a request that cannot double-apply is retried: reads, deletes, or a create with an idempotency key.
         boolean retryable = method.equals("GET") || method.equals("DELETE") || headers.containsKey("Idempotency-Key");
-        HttpTransport.Response resp = send(method, url, headers, payload, retryable ? cfg.maxRetries : 0);
-        Map<String, Object> json = parseBody(resp.body());
-        if (resp.status() < 200 || resp.status() >= 300) throw new ClarianException(resp.status(), json);
-        return json.containsKey("data") ? json.get("data") : json;
+        return send(method, url, headers, payload, retryable ? cfg.maxRetries : 0);
     }
 
     private HttpTransport.Response send(String method, String url, Map<String, String> headers, byte[] body, int retries) {
@@ -282,10 +293,19 @@ public final class ClarianClient {
         return q;
     }
 
+    /** Ordered query pairs; a null value is left out of the URL. */
+    private static Map<String, Object> params(Object... pairs) {
+        Map<String, Object> q = new LinkedHashMap<>();
+        for (int i = 0; i < pairs.length; i += 2) q.put((String) pairs[i], pairs[i + 1]);
+        return q;
+    }
+
     // ---- Resources (same order and names as the TypeScript SDK) ------------------------
 
     public final class Balances {
         public List<Map<String, Object>> list() { return getList("balances"); }
+        /** End-of-day balance per day, {@code days} back from today. */
+        public List<Map<String, Object>> history(Integer days, String currency) { return getList("balances/history", params("days", days, "currency", currency)); }
     }
 
     public final class Wallets {
@@ -302,6 +322,10 @@ public final class ClarianClient {
         public Map<String, Object> retrieve(String id) { return get("transactions/" + seg(id)); }
         /** Params: {@code limit}, {@code before}, {@code from}, {@code to}, {@code currency}, {@code kind}. */
         public List<Map<String, Object>> statement(Map<String, ?> params) { return getList("statement", params); }
+        /** The statement for a date range (ISO {@code YYYY-MM-DD}) as PDF bytes. */
+        public byte[] statementPdf(String from, String to, String currency) { return requestBytes("statement/pdf", params("from", from, "to", to, "currency", currency)); }
+        /** Volume in and out per day. */
+        public List<Map<String, Object>> daily(Integer days, String source) { return getList("transactions/daily", params("days", days, "source", source)); }
     }
 
     public final class Pix {
@@ -339,6 +363,8 @@ public final class ClarianClient {
             q.put("symbols", symbols == null ? null : String.join(",", symbols));
             return get("prices", q);
         }
+        /** Rates you were quoted, per day. */
+        public List<Map<String, Object>> priceHistory(String base, String quote, Integer days) { return getList("prices/history", params("base", base, "quote", quote, "days", days)); }
     }
 
     public final class Trading {
@@ -407,6 +433,9 @@ public final class ClarianClient {
         public Map<String, Object> stats(Map<String, ?> params) { return get("payment-links/stats", params); }
         public List<Map<String, Object>> splits(String id) { return getList("payment-links/" + seg(id) + "/splits"); }
         public List<Map<String, Object>> replaceSplits(String id, Map<String, ?> body) { return asList(request("PUT", "payment-links/" + seg(id) + "/splits", null, body, null, null)); }
+        public Map<String, Object> products(String id) { return get("payment-links/" + seg(id) + "/products"); }
+        /** Replaces the whole product list of a checkout. Body: {@code {"items": [...]}}. */
+        public Map<String, Object> replaceProducts(String id, List<? extends Map<String, ?>> items) { return send("PUT", "payment-links/" + seg(id) + "/products", Map.of("items", items)); }
         public Map<String, Object> charge(String id, Map<String, ?> body, String idempotencyKey) { return money("payment-links/" + seg(id) + "/charges", body, idempotencyKey); }
     }
 
@@ -421,11 +450,16 @@ public final class ClarianClient {
         public Map<String, Object> retrieve(String id) { return get("subaccounts/" + seg(id)); }
         public List<Map<String, Object>> balances(String id) { return getList("subaccounts/" + seg(id) + "/balances"); }
         public List<Map<String, Object>> transactions(String id, Integer limit) { return getList("subaccounts/" + seg(id) + "/transactions", limit(limit)); }
+        /** Moves BRL between you and the sub-account; never more than the source's available balance. */
+        public Map<String, Object> transfer(String id, Map<String, ?> body, String idempotencyKey) { return money("subaccounts/" + seg(id) + "/transfers", body, idempotencyKey); }
+        public Map<String, Object> fees(String id) { return get("subaccounts/" + seg(id) + "/fees"); }
+        public Map<String, Object> updateFees(String id, Map<String, ?> body) { return send("PUT", "subaccounts/" + seg(id) + "/fees", body); }
     }
 
     public final class ApiKeys {
         public List<Map<String, Object>> list() { return getList("api-keys"); }
         public List<Map<String, Object>> audit(Integer limit) { return getList("api-keys/audit", limit(limit)); }
+        public Map<String, Object> usage(Integer days) { return get("api-keys/usage", params("days", days)); }
     }
 
     public final class Settings {

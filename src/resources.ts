@@ -1,7 +1,17 @@
 // One class per API area, in the order of the public reference.
-import { request, seg, type HttpClientConfig } from "./http.js";
+import { request, requestBytes, seg, type HttpClientConfig } from "./http.js";
 import type * as S from "./schema.js";
-import type { CheckoutListParams, ListParams, PingResponse, Row, StatementParams } from "./types.js";
+import type {
+  CheckoutListParams,
+  DailyVolumeParams,
+  HistoryParams,
+  ListParams,
+  PingResponse,
+  PriceHistoryParams,
+  Row,
+  StatementParams,
+  StatementPdfParams,
+} from "./types.js";
 
 type Cfg = HttpClientConfig;
 type Deleted = Readonly<Record<string, unknown>>;
@@ -16,6 +26,10 @@ export class Balances {
   constructor(private readonly c: Cfg) {}
   list() {
     return request<S.Balance[]>(this.c, "GET", "balances");
+  }
+  /** End-of-day balance per day. */
+  history(params: HistoryParams = {}) {
+    return request<Row[]>(this.c, "GET", "balances/history", { query: params });
   }
 }
 
@@ -48,6 +62,14 @@ export class Transactions {
   }
   statement(params: StatementParams = {}) {
     return request<S.StatementLine[]>(this.c, "GET", "statement", { query: params });
+  }
+  /** The statement for a date range as a PDF file. */
+  statementPdf(params: StatementPdfParams) {
+    return requestBytes(this.c, "statement/pdf", { query: params });
+  }
+  /** Volume in and out per day. */
+  daily(params: DailyVolumeParams = {}) {
+    return request<Row[]>(this.c, "GET", "transactions/daily", { query: params });
   }
 }
 
@@ -122,6 +144,10 @@ export class Conversions {
   }
   prices(symbols?: readonly string[]) {
     return request<Row>(this.c, "GET", "prices", { query: { symbols: symbols?.join(",") } });
+  }
+  /** Rates you were quoted, per day. */
+  priceHistory(params: PriceHistoryParams) {
+    return request<Row[]>(this.c, "GET", "prices/history", { query: params });
   }
 }
 
@@ -281,6 +307,13 @@ export class PaymentLinks {
   replaceSplits(id: string, body: S.ReplaceLinkSplitsRequest) {
     return request<S.PaymentLinkSplit[]>(this.c, "PUT", `payment-links/${seg(id)}/splits`, { body });
   }
+  products(id: string) {
+    return request<Row>(this.c, "GET", `payment-links/${seg(id)}/products`);
+  }
+  /** Replaces the whole product list of a checkout. */
+  replaceProducts(id: string, items: readonly Row[]) {
+    return request<Row>(this.c, "PUT", `payment-links/${seg(id)}/products`, { body: { items } });
+  }
   charge(id: string, body: S.CreateCheckoutChargeRequest, idempotencyKey: string) {
     return withKey(idempotencyKey, (k) => request<S.CheckoutPaymentResult>(this.c, "POST", `payment-links/${seg(id)}/charges`, { body, idempotencyKey: k }));
   }
@@ -314,6 +347,19 @@ export class SubAccounts {
   transactions(id: string, params: { limit?: number } = {}) {
     return request<S.Payment[]>(this.c, "GET", `subaccounts/${seg(id)}/transactions`, { query: params });
   }
+  /** Moves BRL between you and the sub-account. Never more than the source's available balance. */
+  transfer(id: string, body: S.SubAccountTransferRequest, idempotencyKey: string) {
+    return withKey(idempotencyKey, (k) =>
+      request<S.SubAccountTransfer>(this.c, "POST", `subaccounts/${seg(id)}/transfers`, { body, idempotencyKey: k }),
+    );
+  }
+  fees(id: string) {
+    return request<S.SubAccountFees>(this.c, "GET", `subaccounts/${seg(id)}/fees`);
+  }
+  /** Your markup on top of Clarian's fee; omitted keys keep their value. */
+  updateFees(id: string, body: Omit<S.SubAccountFees, "updated_at">) {
+    return request<S.SubAccountFees>(this.c, "PUT", `subaccounts/${seg(id)}/fees`, { body });
+  }
 }
 
 export class ApiKeys {
@@ -323,6 +369,9 @@ export class ApiKeys {
   }
   audit(params: { limit?: number } = {}) {
     return request<S.ApiKeyAuditEntry[]>(this.c, "GET", "api-keys/audit", { query: params });
+  }
+  usage(params: { days?: number } = {}) {
+    return request<Row>(this.c, "GET", "api-keys/usage", { query: params });
   }
 }
 

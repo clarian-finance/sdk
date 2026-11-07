@@ -333,6 +333,11 @@ func (c *Client) do(ctx context.Context, method, path string, o reqOpts, out any
 	if err != nil {
 		return err
 	}
+	// A *[]byte out takes a binary reply (e.g. a PDF) as-is; error replies are still JSON and parsed below.
+	if b, ok := out.(*[]byte); ok && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		*b = raw
+		return nil
+	}
 	var env map[string]json.RawMessage
 	obj := Row{}
 	if len(raw) > 0 {
